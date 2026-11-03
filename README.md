@@ -60,6 +60,22 @@ https://raw.githubusercontent.com/sudo-catz/dsh-nebula/main/market/index.json
 The entry pins an exact commit. Discover requires the optional plugin-market
 bundle on profiles that do not ship it.
 
+### From npm
+
+In **Plugins → Add plugin**, enter the package name:
+
+```
+dsh-nebula
+```
+
+Or pin the exact version:
+
+```
+dsh-nebula@1.0.0
+```
+
+The plugin manager reads it from the npm registry and installs the bundle.
+
 ### From Git
 
 In **Plugins → Add plugin**, paste the pinned `v1.0.0` address:
