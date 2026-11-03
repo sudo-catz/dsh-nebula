@@ -62,14 +62,17 @@ bundle on profiles that do not ship it.
 
 ### From Git
 
-In **Plugins → Add plugin**, paste a Git address:
+In **Plugins → Add plugin**, paste the pinned `v1.0.0` address:
+
+```
+git+https://github.com/sudo-catz/dsh-nebula.git#e6ec8bd2b2d5eaed3d1e1b8d01e5ef79fecbedfa
+```
+
+Or follow the default branch:
 
 ```
 git+https://github.com/sudo-catz/dsh-nebula.git
 ```
-
-Pin a release by appending `#` and a full commit SHA; the market entry does this
-for you.
 
 ### From a local checkout
 

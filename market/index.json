@@ -1,0 +1,77 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Nebula",
+    "id": "Nebula"
+  },
+  "description": {
+    "en": "An ambient aurora and starfield plus a Radio Garden station player for the DeepSeek Harness Web UI.",
+    "id": "Aurora dan langit berbintang serta pemutar stasiun Radio Garden untuk antarmuka Web DeepSeek Harness."
+  },
+  "metadata": {
+    "categories": {
+      "appearance": {
+        "title": {
+          "en": "Appearance",
+          "id": "Tampilan"
+        }
+      }
+    },
+    "labels": {
+      "ambient": {
+        "title": {
+          "en": "Ambient",
+          "id": "Ambient"
+        }
+      },
+      "radio": {
+        "title": {
+          "en": "Radio",
+          "id": "Radio"
+        }
+      },
+      "web-ui": {
+        "title": {
+          "en": "Web UI",
+          "id": "Antarmuka Web"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-nebula",
+      "title": {
+        "en": "Nebula",
+        "id": "Nebula"
+      },
+      "description": {
+        "en": "An ambient aurora and starfield plus a Radio Garden station player in one package, with composer toggles, saved stations, volume, and OS media controls.",
+        "id": "Aurora dan langit berbintang serta pemutar stasiun Radio Garden dalam satu paket, dengan tombol di bilah komposer, stasiun tersimpan, volume, dan kontrol media OS."
+      },
+      "icon": "../icon.svg",
+      "author": "sudo-catz",
+      "homepage": "https://github.com/sudo-catz/dsh-nebula#readme",
+      "repository": {
+        "url": "https://github.com/sudo-catz/dsh-nebula"
+      },
+      "metadata": {
+        "category": "appearance",
+        "keywords": ["dsh", "dsh-plugin", "ambient", "aurora", "radio", "radio-garden", "web-ui"],
+        "labels": ["ambient", "radio", "web-ui"]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1793686957,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/sudo-catz/dsh-nebula",
+            "commit": "e6ec8bd2b2d5eaed3d1e1b8d01e5ef79fecbedfa"
+          },
+          "engines": {}
+        }
+      ]
+    }
+  ]
+}
