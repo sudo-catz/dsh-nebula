@@ -129,17 +129,17 @@ dsh-nebula
 Or pin the exact version:
 
 ```
-dsh-nebula@1.0.0
+dsh-nebula@1.1.0
 ```
 
 The plugin manager reads it from the npm registry and installs the bundle.
 
 ### From Git
 
-In **Plugins → Add plugin**, paste the pinned `v1.0.0` address:
+In **Plugins → Add plugin**, paste the pinned `v1.1.0` address:
 
 ```
-git+https://github.com/sudo-catz/dsh-nebula.git#e6ec8bd2b2d5eaed3d1e1b8d01e5ef79fecbedfa
+git+https://github.com/sudo-catz/dsh-nebula.git#c29d0f8ec5a7665bb448202ac891352e49b69bca
 ```
 
 Or follow the default branch:
