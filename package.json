@@ -1,0 +1,49 @@
+{
+  "name": "dsh-nebula",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Nebula: an ambient aurora and starfield plus a Radio Garden station player for the DeepSeek Harness Web UI.",
+  "license": "MIT",
+  "author": "sudo-catz",
+  "homepage": "https://github.com/sudo-catz/dsh-nebula#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sudo-catz/dsh-nebula.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sudo-catz/dsh-nebula/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "ambient",
+    "aurora",
+    "radio",
+    "radio-garden",
+    "web-ui"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}
