@@ -1,39 +1,38 @@
 {
   "format": 1,
   "title": {
-    "en": "Nebula",
-    "id": "Nebula"
+    "en": "Nebula"
   },
   "description": {
-    "en": "An ambient aurora and starfield plus a Radio Garden station player for the DeepSeek Harness Web UI.",
-    "id": "Aurora dan langit berbintang serta pemutar stasiun Radio Garden untuk antarmuka Web DeepSeek Harness."
+    "en": "An ambient aurora and starfield, a sky that follows your local time, a deep-space theme, and a Radio Garden station player for the DeepSeek Harness Web UI."
   },
   "metadata": {
     "categories": {
       "appearance": {
         "title": {
-          "en": "Appearance",
-          "id": "Tampilan"
+          "en": "Appearance"
         }
       }
     },
     "labels": {
       "ambient": {
         "title": {
-          "en": "Ambient",
-          "id": "Ambient"
+          "en": "Ambient"
         }
       },
       "radio": {
         "title": {
-          "en": "Radio",
-          "id": "Radio"
+          "en": "Radio"
         }
       },
       "web-ui": {
         "title": {
-          "en": "Web UI",
-          "id": "Antarmuka Web"
+          "en": "Web UI"
+        }
+      },
+      "theme": {
+        "title": {
+          "en": "Theme"
         }
       }
     }
@@ -42,12 +41,10 @@
     {
       "name": "dsh-nebula",
       "title": {
-        "en": "Nebula",
-        "id": "Nebula"
+        "en": "Nebula"
       },
       "description": {
-        "en": "An ambient aurora and starfield plus a Radio Garden station player in one package, with composer toggles, saved stations, volume, and OS media controls.",
-        "id": "Aurora dan langit berbintang serta pemutar stasiun Radio Garden dalam satu paket, dengan tombol di bilah komposer, stasiun tersimpan, volume, dan kontrol media OS."
+        "en": "An ambient aurora, a time-aware sky, a deep-space theme, and a Radio Garden station player in one package, with composer toggles, saved stations, volume, and OS media controls."
       },
       "icon": "../icon.svg",
       "author": "sudo-catz",
@@ -57,8 +54,23 @@
       },
       "metadata": {
         "category": "appearance",
-        "keywords": ["dsh", "dsh-plugin", "ambient", "aurora", "radio", "radio-garden", "web-ui"],
-        "labels": ["ambient", "radio", "web-ui"]
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "ambient",
+          "aurora",
+          "sky",
+          "theme",
+          "radio",
+          "radio-garden",
+          "web-ui"
+        ],
+        "labels": [
+          "ambient",
+          "radio",
+          "web-ui",
+          "theme"
+        ]
       },
       "versions": [
         {
