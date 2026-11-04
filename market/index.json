@@ -4,7 +4,7 @@
     "en": "Nebula"
   },
   "description": {
-    "en": "An ambient aurora and starfield, a sky that follows your local time, a deep-space theme, and a Radio Garden station player for the DeepSeek Harness Web UI."
+    "en": "An ambient aurora and starfield, a sky that follows your local time and live weather, a deep-space theme, and a Radio Garden station player for the DeepSeek Harness Web UI."
   },
   "metadata": {
     "categories": {
@@ -44,7 +44,7 @@
         "en": "Nebula"
       },
       "description": {
-        "en": "An ambient aurora, a time-aware sky, a deep-space theme, and a Radio Garden station player in one package, with composer toggles, saved stations, volume, and OS media controls."
+        "en": "An ambient aurora and starfield, a time-aware sky with live weather and moonrise/set, a deep-space theme, and a Radio Garden station player in one package, with composer toggles, saved stations, volume, and OS media controls."
       },
       "icon": "../icon.svg",
       "author": "sudo-catz",
@@ -90,6 +90,16 @@
             "type": "git",
             "url": "https://github.com/sudo-catz/dsh-nebula",
             "commit": "c29d0f8ec5a7665bb448202ac891352e49b69bca"
+          },
+          "engines": {}
+        },
+        {
+          "version": "1.2.0",
+          "publishTimestamp": 1793788187,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/sudo-catz/dsh-nebula",
+            "commit": "4c1472262962da11b094d9a671dea352754242b8"
           },
           "engines": {}
         }
