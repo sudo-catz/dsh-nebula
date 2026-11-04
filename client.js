@@ -30,6 +30,9 @@ window.__ModuleLoader__.load({
     const GEO_KEY = 'dsh.nebula-sky.geo';
     const GEO_TTL_MS = 24 * 60 * 60 * 1000;
     const GEO_ENDPOINT = 'https://ipwho.is/';
+    const WEATHER_KEY = 'dsh.nebula-weather';
+    const WEATHER_TTL_MS = 15 * 60 * 1000;
+    const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/forecast';
     const DEVICE_ZONE = (() => {
       try {
         return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -440,6 +443,7 @@ window.__ModuleLoader__.load({
     })();
 
     let skyGeo = readGeo();
+    let weather = readWeather();
 
     // null follows the clock; a number pins the sky to that minute for preview.
     let skyPreview = null;
@@ -473,6 +477,141 @@ window.__ModuleLoader__.load({
         /* No cached location. */
       }
       return null;
+    }
+
+    function readWeather() {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(WEATHER_KEY) || 'null');
+        if (
+          parsed &&
+          Number.isFinite(parsed.code) &&
+          Number.isFinite(parsed.cloud) &&
+          Number.isFinite(parsed.lat) &&
+          Number.isFinite(parsed.lon)
+        ) {
+          return {
+            code: Math.round(parsed.code),
+            cloud: Math.min(100, Math.max(0, Number(parsed.cloud))),
+            precip: Number.isFinite(Number(parsed.precip)) ? Number(parsed.precip) : 0,
+            temp: Number.isFinite(Number(parsed.temp)) ? Number(parsed.temp) : null,
+            lat: Number(parsed.lat),
+            lon: Number(parsed.lon),
+            ts: Number(parsed.ts) || 0,
+          };
+        }
+      } catch {
+        /* No cached weather. */
+      }
+      return null;
+    }
+
+    function weatherKind(code) {
+      if ([95, 96, 99].includes(code)) return 'storm';
+      if ([71, 73, 75, 77, 85, 86].includes(code)) return 'snow';
+      if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) {
+        return 'rain';
+      }
+      if ([45, 48].includes(code)) return 'fog';
+      if (code === 3) return 'overcast';
+      if (code === 1 || code === 2) return 'cloudy';
+      return 'clear';
+    }
+
+    function weatherIntensity(currentWeather) {
+      if (!currentWeather) return 0;
+      const kind = weatherKind(currentWeather.code);
+      if (kind === 'storm') return 1;
+      const amount = Math.max(0, Number(currentWeather.precip) || 0);
+      if (kind === 'snow') return Math.min(1, 0.35 + amount * 0.35);
+      return Math.min(1, Math.max(0.22, 0.22 + amount / 1.4));
+    }
+
+    function weatherStarDim(currentWeather) {
+      if (!currentWeather) return 1;
+      const kind = weatherKind(currentWeather.code);
+      let dim = 1 - Math.min(1, Math.max(0, currentWeather.cloud / 100)) * 0.55;
+      if (kind === 'fog') dim *= 0.35;
+      else if (kind === 'rain') dim *= 0.7;
+      else if (kind === 'snow') dim *= 0.6;
+      else if (kind === 'storm') dim *= 0.4;
+      return Math.max(0.12, dim);
+    }
+
+    function weatherBodyDim(currentWeather) {
+      if (!currentWeather) return 1;
+      const kind = weatherKind(currentWeather.code);
+      let dim = 1 - Math.min(1, Math.max(0, currentWeather.cloud / 100)) * 0.5;
+      if (kind === 'fog') dim *= 0.5;
+      else if (kind === 'rain' || kind === 'snow') dim *= 0.75;
+      else if (kind === 'storm') dim *= 0.5;
+      return Math.max(0.25, dim);
+    }
+
+    let weatherController = null;
+    function refreshWeather(location) {
+      if (!location || typeof window.fetch !== 'function') return null;
+      const now = Date.now();
+      if (
+        weather &&
+        now - weather.ts < WEATHER_TTL_MS &&
+        Math.abs(weather.lat - location.lat) < 0.02 &&
+        Math.abs(weather.lon - location.lon) < 0.02
+      ) {
+        return null;
+      }
+      if (weatherController) weatherController.abort();
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      weatherController = controller;
+      const timer = window.setTimeout(() => {
+        if (controller) controller.abort();
+      }, 8000);
+      const query =
+        '?latitude=' +
+        encodeURIComponent(location.lat.toFixed(4)) +
+        '&longitude=' +
+        encodeURIComponent(location.lon.toFixed(4)) +
+        '&current=weather_code,cloud_cover,precipitation,temperature_2m' +
+        '&timezone=auto&forecast_days=1';
+      window
+        .fetch(WEATHER_ENDPOINT + query, {
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: controller ? controller.signal : undefined,
+        })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          if (weatherController !== controller) return;
+          const current = data && data.current;
+          const code = Number(current && current.weather_code);
+          const cloud = Number(current && current.cloud_cover);
+          if (!Number.isFinite(code) || !Number.isFinite(cloud)) return;
+          weather = {
+            code: Math.round(code),
+            cloud: Math.min(100, Math.max(0, cloud)),
+            precip: Math.max(0, Number(current.precipitation) || 0),
+            temp: Number.isFinite(Number(current.temperature_2m))
+              ? Number(current.temperature_2m)
+              : null,
+            lat: location.lat,
+            lon: location.lon,
+            ts: Date.now(),
+          };
+          try {
+            window.localStorage.setItem(WEATHER_KEY, JSON.stringify(weather));
+          } catch {
+            /* Private mode: the session weather still applies. */
+          }
+          emit();
+          requestStaticRedraw();
+        })
+        .catch(() => {
+          /* Keep the last weather when the lookup fails. */
+        })
+        .finally(() => {
+          window.clearTimeout(timer);
+          if (weatherController === controller) weatherController = null;
+        });
+      return controller;
     }
 
     let geoController = null;
@@ -521,6 +660,7 @@ window.__ModuleLoader__.load({
           }
           emit();
           requestStaticRedraw();
+          refreshWeather(resolveSkyLocation(skyGeo));
         })
         .catch(() => {
           /* The sun markers stay hidden when the lookup fails. */
@@ -1206,6 +1346,39 @@ window.__ModuleLoader__.load({
       return clouds;
     }
 
+    function makeRain(w, h) {
+      const count = Math.min(180, Math.max(80, Math.round(w / 8)));
+      const drops = [];
+      for (let index = 0; index < count; index += 1) {
+        drops.push({
+          x: Math.random(),
+          y: Math.random(),
+          speed: 520 + Math.random() * 380,
+          wind: -30 + Math.random() * 60,
+          len: 0.025 + Math.random() * 0.04,
+          a: 0.16 + Math.random() * 0.28,
+        });
+      }
+      return drops;
+    }
+
+    function makeSnow(w, h) {
+      const count = Math.min(110, Math.max(50, Math.round(w / 14)));
+      const flakes = [];
+      for (let index = 0; index < count; index += 1) {
+        flakes.push({
+          x: Math.random(),
+          y: Math.random(),
+          speed: 22 + Math.random() * 38,
+          phase: Math.random() * TAU,
+          drift: 0.0008 + Math.random() * 0.0015,
+          r: 0.8 + Math.random() * 1.8,
+          a: 0.25 + Math.random() * 0.45,
+        });
+      }
+      return flakes;
+    }
+
     function NebulaLayer() {
       const on = useAmbienceEnabled();
       const canvasRef = useRef(null);
@@ -1233,7 +1406,11 @@ window.__ModuleLoader__.load({
         let stars = [];
         let milkyStars = [];
         let clouds = [];
+        let rainDrops = [];
+        let snowFlakes = [];
         let meteors = [];
+        let nextLightning = 0;
+        let lightningAt = 0;
         let pointerX = 0.5;
         let pointerY = 0.42;
         let easedX = 0.5;
@@ -1250,6 +1427,8 @@ window.__ModuleLoader__.load({
           stars = makeStars(w, h);
           milkyStars = makeMilkyStars(w, h);
           clouds = makeClouds(w, h);
+          rainDrops = makeRain(w, h);
+          snowFlakes = makeSnow(w, h);
         }
 
         function spawnMeteor() {
@@ -1309,9 +1488,15 @@ window.__ModuleLoader__.load({
           g.restore();
         }
 
-        function drawClouds(now, px, py, sky, light) {
+        function drawClouds(now, px, py, sky, light, weather) {
           if (!sky || !clouds.length) return;
           const tint = light ? shadeColor(sky.colors[0], 0.45) : sky.colors[0];
+          const cover = weather
+            ? Math.min(1, Math.max(0, weather.cloud / 100))
+            : 0.25;
+          const kind = weather ? weatherKind(weather.code) : 'unknown';
+          const alphaScale =
+            kind === 'unknown' ? 0.75 : kind === 'clear' ? 0.25 : 0.55 + cover * 0.9;
           g.save();
           g.globalCompositeOperation = 'source-over';
           for (let index = 0; index < clouds.length; index += 1) {
@@ -1332,7 +1517,7 @@ window.__ModuleLoader__.load({
             g.translate(x, y);
             g.scale((cloud.rx * w) / radius, 1);
             const grad = g.createRadialGradient(0, 0, 0, 0, 0, radius);
-            const alpha = cloud.a * (light ? 1.3 : 1);
+            const alpha = cloud.a * alphaScale * (light ? 1.3 : 1);
             grad.addColorStop(0, 'rgba(' + tint + ',' + alpha + ')');
             grad.addColorStop(0.55, 'rgba(' + tint + ',' + alpha * 0.45 + ')');
             grad.addColorStop(1, 'rgba(' + tint + ',0)');
@@ -1341,6 +1526,18 @@ window.__ModuleLoader__.load({
             g.restore();
           }
           g.restore();
+
+          if (weather && cover > 0.45) {
+            const veil = g.createLinearGradient(0, 0, 0, h * 0.72);
+            veil.addColorStop(0, 'rgba(' + tint + ',' + (0.015 + cover * 0.055) + ')');
+            veil.addColorStop(0.58, 'rgba(' + tint + ',' + (0.008 + cover * 0.03) + ')');
+            veil.addColorStop(1, 'rgba(' + tint + ',0)');
+            g.save();
+            g.globalCompositeOperation = 'source-over';
+            g.fillStyle = veil;
+            g.fillRect(0, 0, w, h * 0.72);
+            g.restore();
+          }
         }
 
         function drawMoonShape(cx, cy, r, phase) {
@@ -1361,16 +1558,17 @@ window.__ModuleLoader__.load({
           g.closePath();
         }
 
-        function drawCelestial(body, sky, light) {
+        function drawCelestial(body, sky, light, weatherDim) {
           if (!body || !sky) return;
           const span = Math.max(w, h);
           const isSun = body.kind === 'sun';
+          const dim = Math.max(0, Math.min(1, weatherDim ?? 1));
           const r = Math.max(7, Math.min(isSun ? 13 : 18, span * (isSun ? 0.0095 : 0.011)));
           const cx = Math.max(18, Math.min(w - 18, body.x * w));
           const cy = Math.max(22, Math.min(h - 22, body.y * h));
           const lit = Math.max(0, Math.min(1, body.illumination / 100));
           const horizonFade = 0.45 + 0.55 * Math.sin(Math.PI * body.t);
-          const alpha = (isSun ? 0.42 : 0.55 + 0.45 * lit) * horizonFade;
+          const alpha = (isSun ? 0.42 : 0.55 + 0.45 * lit) * horizonFade * dim;
           const color = isSun
             ? light
               ? '196,142,82'
@@ -1381,7 +1579,8 @@ window.__ModuleLoader__.load({
           const glowRadius = r * (isSun ? 8 : 7);
           const glowAlpha =
             (isSun ? (light ? 0.05 : 0.09) : light ? 0.035 : 0.04 + 0.14 * lit) *
-            horizonFade;
+            horizonFade *
+            dim;
 
           g.globalCompositeOperation = light ? 'source-over' : 'lighter';
           const glow = g.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
@@ -1445,6 +1644,99 @@ window.__ModuleLoader__.load({
           g.globalCompositeOperation = light ? 'source-over' : 'lighter';
         }
 
+        function drawWeather(now, dt, currentWeather, light) {
+          if (!currentWeather) return;
+          const kind = weatherKind(currentWeather.code);
+
+          if (kind === 'fog') {
+            const tint = light ? '125,138,155' : '190,208,228';
+            const alpha = light ? 0.055 : 0.07;
+            const veil = g.createLinearGradient(0, 0, 0, h);
+            veil.addColorStop(0, 'rgba(' + tint + ',' + alpha * 0.55 + ')');
+            veil.addColorStop(0.45, 'rgba(' + tint + ',' + alpha + ')');
+            veil.addColorStop(1, 'rgba(' + tint + ',' + alpha * 0.7 + ')');
+            g.save();
+            g.globalCompositeOperation = 'source-over';
+            g.fillStyle = veil;
+            g.fillRect(0, 0, w, h);
+            g.restore();
+            return;
+          }
+
+          if (kind === 'rain' || kind === 'storm') {
+            const intensity = weatherIntensity(currentWeather);
+            const active = Math.min(
+              rainDrops.length,
+              Math.max(24, Math.round(rainDrops.length * (0.3 + 0.7 * intensity))),
+            );
+            const step = dt > 0 ? Math.min(48, dt) : 0;
+            const color = light ? '55,82,120' : '178,210,242';
+            g.save();
+            g.globalCompositeOperation = 'source-over';
+            g.strokeStyle = 'rgba(' + color + ',1)';
+            g.lineWidth = light ? 1.1 : 1.25;
+            g.lineCap = 'round';
+            for (let index = 0; index < active; index += 1) {
+              const drop = rainDrops[index];
+              if (step > 0) {
+                drop.y += (drop.speed * step) / h;
+                drop.x += (drop.wind * step) / w;
+                if (drop.y > 1.05) drop.y = ((drop.y + 0.05) % 1.1) - 0.05;
+                if (drop.x < -0.05) drop.x = 1.05;
+                else if (drop.x > 1.05) drop.x = -0.05;
+              }
+              const x = drop.x * w;
+              const y = drop.y * h;
+              g.globalAlpha =
+                drop.a * (0.55 + 0.45 * intensity) * (light ? 0.85 : 1);
+              g.beginPath();
+              g.moveTo(x, y);
+              g.lineTo(x - drop.wind * 0.055, y + drop.len * h);
+              g.stroke();
+            }
+            g.restore();
+          }
+
+          if (kind === 'snow') {
+            const color = light ? '88,108,140' : '238,246,255';
+            g.save();
+            g.globalCompositeOperation = 'source-over';
+            g.fillStyle = 'rgba(' + color + ',1)';
+            for (let index = 0; index < snowFlakes.length; index += 1) {
+              const flake = snowFlakes[index];
+              if (dt > 0) {
+                const step = Math.min(48, dt);
+                flake.y += (flake.speed * step) / h;
+                flake.x += Math.sin(now * 0.0012 + flake.phase) * flake.drift * (step / 16);
+                if (flake.y > 1.03) flake.y = ((flake.y + 0.03) % 1.06) - 0.03;
+                if (flake.x < -0.03) flake.x = 1.03;
+                else if (flake.x > 1.03) flake.x = -0.03;
+              }
+              g.globalAlpha = flake.a * (light ? 0.8 : 1);
+              g.beginPath();
+              g.arc(flake.x * w, flake.y * h, flake.r, 0, TAU);
+              g.fill();
+            }
+            g.restore();
+          }
+
+          if (kind === 'storm' && !reduced()) {
+            if (!nextLightning) nextLightning = now + 3500 + Math.random() * 5000;
+            if (now > nextLightning) {
+              lightningAt = now;
+              nextLightning = now + 7000 + Math.random() * 11000;
+            }
+            const age = now - lightningAt;
+            if (lightningAt && age >= 0 && age < 180) {
+              g.save();
+              g.globalCompositeOperation = 'source-over';
+              g.fillStyle = 'rgba(205,225,255,' + (1 - age / 180) * 0.05 + ')';
+              g.fillRect(0, 0, w, h);
+              g.restore();
+            }
+          }
+        }
+
         function draw(now, dt) {
           g.setTransform(dpr, 0, 0, dpr, 0, 0);
           g.clearRect(0, 0, w, h);
@@ -1452,6 +1744,9 @@ window.__ModuleLoader__.load({
           const light = scheme === 'light';
           const sky = skyEnabled ? currentSky() : null;
           const body = sky ? currentCelestial() : null;
+          const currentWeather = weather;
+          const starDim = weatherStarDim(currentWeather);
+          const bodyDim = weatherBodyDim(currentWeather);
           let palette = light ? LIGHT : DARK;
           if (sky) {
             // A light page needs a real wash, not a hint: dark, saturated ink
@@ -1459,8 +1754,8 @@ window.__ModuleLoader__.load({
             const lightScale = 0.55 + 0.65 * sky.scale;
             palette = {
               star: palette.star,
-              starAlpha: palette.starAlpha * sky.star,
-              glow: !light && sky.star > 0.3,
+              starAlpha: palette.starAlpha * sky.star * starDim,
+              glow: !light && sky.star > 0.3 && starDim > 0.4,
               blobs: palette.blobs.map((blob, index) => {
                 const skyColor = sky.colors[index] || blob.c;
                 return {
@@ -1601,7 +1896,7 @@ window.__ModuleLoader__.load({
           g.globalAlpha = 1;
 
           if (sky) {
-            drawClouds(now, px, py, sky, light);
+            drawClouds(now, px, py, sky, light, currentWeather);
             g.globalCompositeOperation = light ? 'source-over' : 'lighter';
           }
 
@@ -1642,7 +1937,8 @@ window.__ModuleLoader__.load({
             }
           }
 
-          if (body) drawCelestial(body, sky, light);
+          if (body) drawCelestial(body, sky, light, bodyDim);
+          if (sky) drawWeather(now, dt, currentWeather, light);
 
           g.globalCompositeOperation = 'source-over';
           const vignette = g.createRadialGradient(
@@ -2143,6 +2439,17 @@ window.__ModuleLoader__.load({
           const controller = refreshGeo();
           return () => {
             if (controller) controller.abort();
+          };
+        });
+
+        ctx.effect(() => {
+          refreshWeather(resolveSkyLocation(skyGeo));
+          const timer = window.setInterval(() => {
+            refreshWeather(resolveSkyLocation(skyGeo));
+          }, WEATHER_TTL_MS);
+          return () => {
+            window.clearInterval(timer);
+            if (weatherController) weatherController.abort();
           };
         });
 
