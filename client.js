@@ -3704,6 +3704,9 @@ window.__ModuleLoader__.load({
     const RETRY_DELAYS_MS = [1500, 3000, 6000];
     const STATION_PATTERN = /^https:\/\/radio\.garden\/listen\/([A-Za-z0-9._~-]+)\/([A-Za-z0-9_-]{4,64})\/?$/i;
     const RADIO_BROWSER_ENDPOINT = 'https://de1.api.radio-browser.info/json/stations/search';
+    const RADIO_BROWSER_COUNTRIES = 'https://de1.api.radio-browser.info/json/countries';
+    const COUNTRIES_KEY = 'dsh.nebula-station.countries';
+    const COUNTRIES_TTL_MS = 24 * 60 * 60 * 1000;
     // The five stations that ship with the player. Smooth Jazz is the
     // default active station; all five are fixed and cannot be removed.
     const SEED_STATIONS = [
@@ -3756,6 +3759,12 @@ window.__ModuleLoader__.load({
       searchError: 'Station search is unavailable right now.',
       searchMin: 'Type at least two characters.',
       searchResults: 'Search results',
+      countryPlaceholder: 'Top 10 by country',
+      countryLabel: 'Country for top stations',
+      countryLoading: 'Loading countries…',
+      countryError: 'Country list unavailable.',
+      topTenButton: 'Top 10',
+      topStations: 'Top 10 in {country}',
       searchAdd: 'Add {station}',
       addInvalid: 'Use a radio.garden/listen/… URL, or search by station name.',
       addDuplicate: 'That station is already in the list.',
@@ -4041,6 +4050,61 @@ window.__ModuleLoader__.load({
   gap: 8px;
   flex-wrap: wrap;
 }
+.dsh-nr-country-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dsh-nr-country-select {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.dsh-nr-country-select:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+.dsh-nr-country-select:disabled {
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+}
+.dsh-nr-discover {
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dsh-nr-discover:hover:not(:disabled) {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-nr-discover:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+.dsh-nr-discover:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.dsh-nr-country-hint {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+  line-height: 16px;
+}
 .dsh-nr-search-panel {
   display: flex;
   flex-direction: column;
@@ -4056,6 +4120,24 @@ window.__ModuleLoader__.load({
   line-height: 18px;
 }
 .dsh-nr-search-status.is-error { color: var(--dsw-alias-state-error-primary); }
+.dsh-nr-search-heading {
+  padding: 3px 2px 2px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+.dsh-nr-result-rank {
+  flex: none;
+  width: 16px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .dsh-nr-result {
   display: flex;
   align-items: center;
@@ -4465,7 +4547,45 @@ window.__ModuleLoader__.load({
         country: String(entry.country || '').trim().slice(0, 60),
         bitrate: Number(entry.bitrate) || 0,
         codec: String(entry.codec || '').trim().slice(0, 20),
+        clickcount: Number(entry.clickcount) || 0,
       };
+    }
+
+    function readCountryCache() {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(COUNTRIES_KEY) || 'null');
+        if (
+          parsed &&
+          Date.now() - (Number(parsed.ts) || 0) < COUNTRIES_TTL_MS &&
+          Array.isArray(parsed.list)
+        ) {
+          const list = [];
+          for (const item of parsed.list) {
+            const code = String(item && item.code ? item.code : '').trim().toUpperCase();
+            const name = String(item && item.name ? item.name : '').trim();
+            const count = Number(item && item.count) || 0;
+            if (/^[A-Z]{2}$/.test(code) && name) list.push({ code, name, count });
+          }
+          if (list.length) return list;
+        }
+      } catch {
+        /* Rebuild the country cache. */
+      }
+      return null;
+    }
+
+    function persistCountryCache(list) {
+      try {
+        window.localStorage.setItem(
+          COUNTRIES_KEY,
+          JSON.stringify({
+            ts: Date.now(),
+            list: list.map((item) => ({ code: item.code, name: item.name, count: item.count })),
+          }),
+        );
+      } catch {
+        /* The session list still works. */
+      }
     }
 
     function readStations() {
@@ -5448,6 +5568,11 @@ window.__ModuleLoader__.load({
       const [results, setResults] = useState([]);
       const [searching, setSearching] = useState(false);
       const [searchError, setSearchError] = useState('');
+      const [resultLabel, setResultLabel] = useState('');
+      const [countries, setCountries] = useState([]);
+      const [countriesLoading, setCountriesLoading] = useState(false);
+      const [countriesError, setCountriesError] = useState(false);
+      const [countryCode, setCountryCode] = useState('');
       const addInputRef = useRef(null);
       const addToggleRef = useRef(null);
       const searchAbortRef = useRef(null);
@@ -5502,6 +5627,10 @@ window.__ModuleLoader__.load({
         [],
       );
 
+      useEffect(() => {
+        if (adding) loadCountries();
+      }, [adding]);
+
       function focusToggle() {
         window.setTimeout(() => {
           const toggle = addToggleRef.current;
@@ -5509,11 +5638,48 @@ window.__ModuleLoader__.load({
         }, 0);
       }
 
+      function loadCountries() {
+        if (countries.length || countriesLoading) return;
+        const cached = readCountryCache();
+        if (cached) {
+          setCountries(cached);
+          setCountriesError(false);
+          return;
+        }
+        setCountriesLoading(true);
+        setCountriesError(false);
+        window
+          .fetch(RADIO_BROWSER_COUNTRIES, {
+            cache: 'no-store',
+            credentials: 'omit',
+            headers: { Accept: 'application/json' },
+          })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            const list = [];
+            for (const item of Array.isArray(data) ? data : []) {
+              const code = String(item && item.iso_3166_1 ? item.iso_3166_1 : '')
+                .trim()
+                .toUpperCase();
+              const name = String(item && item.name ? item.name : '').trim();
+              const count = Number(item && item.stationcount) || 0;
+              if (/^[A-Z]{2}$/.test(code) && name) list.push({ code, name, count });
+            }
+            list.sort((a, b) => a.name.localeCompare(b.name));
+            setCountries(list);
+            if (list.length) persistCountryCache(list);
+            else setCountriesError(true);
+          })
+          .catch(() => setCountriesError(true))
+          .finally(() => setCountriesLoading(false));
+      }
+
       function openAdd() {
         setAdding(true);
         setError('');
         setResults([]);
         setSearchError('');
+        setResultLabel('');
       }
 
       function closeAdd() {
@@ -5526,6 +5692,7 @@ window.__ModuleLoader__.load({
         setError('');
         setResults([]);
         setSearchError('');
+        setResultLabel('');
         setSearching(false);
         focusToggle();
       }
@@ -5540,6 +5707,7 @@ window.__ModuleLoader__.load({
         if (error) setError('');
         if (results.length) setResults([]);
         if (searchError) setSearchError('');
+        if (resultLabel) setResultLabel('');
       }
 
       function runSearch(query) {
@@ -5553,6 +5721,7 @@ window.__ModuleLoader__.load({
         setSearching(true);
         setSearchError('');
         setResults([]);
+        setResultLabel(t('searchResults'));
         const params = new URLSearchParams({
           limit: '10',
           hidebroken: 'true',
@@ -5585,10 +5754,70 @@ window.__ModuleLoader__.load({
               }
               seen.add(station.id);
               next.push(station);
-              if (next.length >= 8) break;
             }
+            next.sort((a, b) => b.clickcount - a.clickcount);
             if (!next.length) setSearchError(t('searchEmpty'));
-            else setResults(next);
+            else setResults(next.slice(0, 8));
+          })
+          .catch((error) => {
+            if (controller && controller.signal.aborted) return;
+            setSearchError(t('searchError'));
+          })
+          .finally(() => {
+            if (controller && searchAbortRef.current === controller) {
+              searchAbortRef.current = null;
+              setSearching(false);
+            }
+          });
+      }
+
+      function runCountry(code) {
+        if (!code) return;
+        if (searchAbortRef.current) searchAbortRef.current.abort();
+        const country = countries.find((item) => item.code === code);
+        const label = t('topStations').replace('{country}', country ? country.name : code);
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        searchAbortRef.current = controller;
+        setSearching(true);
+        setSearchError('');
+        setResults([]);
+        setResultLabel(label);
+        const params = new URLSearchParams({
+          countrycode: code,
+          hidebroken: 'true',
+          order: 'clickcount',
+          reverse: 'true',
+          limit: '30',
+        });
+        window
+          .fetch(RADIO_BROWSER_ENDPOINT + '?' + params.toString(), {
+            cache: 'no-store',
+            credentials: 'omit',
+            headers: { Accept: 'application/json' },
+            signal: controller ? controller.signal : undefined,
+          })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            if (!controller || searchAbortRef.current !== controller) return;
+            const seen = new Set();
+            const next = [];
+            for (const item of Array.isArray(data) ? data : []) {
+              const station = stationFromSearchResult(item);
+              if (!station || seen.has(station.id)) continue;
+              if (
+                stations.some(
+                  (existing) =>
+                    existing.id === station.id || existing.streamUrl === station.streamUrl,
+                )
+              ) {
+                continue;
+              }
+              seen.add(station.id);
+              next.push(station);
+            }
+            next.sort((a, b) => b.clickcount - a.clickcount);
+            if (!next.length) setSearchError(t('searchEmpty'));
+            else setResults(next.slice(0, 10));
           })
           .catch((error) => {
             if (controller && controller.signal.aborted) return;
@@ -5622,6 +5851,7 @@ window.__ModuleLoader__.load({
         setError('');
         setResults([]);
         setSearchError('');
+        setResultLabel('');
         setAdding(false);
         switchStation(station.id);
         focusToggle();
@@ -5792,6 +6022,55 @@ window.__ModuleLoader__.load({
                     t('cancel'),
                   ),
                 ),
+                h(
+                  'div',
+                  { className: 'dsh-nr-country-row' },
+                  h(
+                    'select',
+                    {
+                      className: 'dsh-nr-country-select',
+                      value: countryCode,
+                      disabled: countriesLoading,
+                      'aria-label': t('countryLabel'),
+                      onChange: (event) => {
+                        if (searchAbortRef.current) {
+                          searchAbortRef.current.abort();
+                          searchAbortRef.current = null;
+                          setSearching(false);
+                        }
+                        setCountryCode(event.target.value);
+                        setResults([]);
+                        setSearchError('');
+                        setResultLabel('');
+                      },
+                    },
+                    h(
+                      'option',
+                      { value: '' },
+                      countriesLoading ? t('countryLoading') : t('countryPlaceholder'),
+                    ),
+                    countries.map((country) =>
+                      h(
+                        'option',
+                        { key: country.code, value: country.code },
+                        country.name + (country.count ? ' (' + country.count + ')' : ''),
+                      ),
+                    ),
+                  ),
+                  h(
+                    'button',
+                    {
+                      className: 'dsh-nr-discover',
+                      type: 'button',
+                      disabled: !countryCode || searching || countriesLoading,
+                      onClick: () => runCountry(countryCode),
+                    },
+                    t('topTenButton'),
+                  ),
+                ),
+                countriesError
+                  ? h('div', { className: 'dsh-nr-country-hint' }, t('countryError'))
+                  : null,
                 searching || searchError || results.length
                   ? h(
                       'div',
@@ -5808,41 +6087,57 @@ window.__ModuleLoader__.load({
                               { className: 'dsh-nr-search-status is-error', role: 'status' },
                               searchError,
                             )
-                          : results.map((station) => {
-                              const meta = [
-                                station.country,
-                                station.bitrate ? station.bitrate + ' kbps' : '',
-                              ]
-                                .filter(Boolean)
-                                .join(' · ');
-                              return h(
-                                'button',
-                                {
-                                  key: station.id,
-                                  type: 'button',
-                                  className: 'dsh-nr-result',
-                                  'aria-label': t('searchAdd').replace(
-                                    '{station}',
-                                    station.name,
+                          : h(
+                              React.Fragment,
+                              null,
+                              resultLabel
+                                ? h(
+                                    'div',
+                                    { className: 'dsh-nr-search-heading' },
+                                    resultLabel,
+                                  )
+                                : null,
+                              results.map((station, index) => {
+                                const meta = [
+                                  station.country,
+                                  station.bitrate ? station.bitrate + ' kbps' : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ');
+                                return h(
+                                  'button',
+                                  {
+                                    key: station.id,
+                                    type: 'button',
+                                    className: 'dsh-nr-result',
+                                    'aria-label': t('searchAdd').replace(
+                                      '{station}',
+                                      station.name,
+                                    ),
+                                    title: t('searchAdd').replace('{station}', station.name),
+                                    onClick: () => addFound(station),
+                                  },
+                                  h(
+                                    'span',
+                                    { className: 'dsh-nr-result-rank', 'aria-hidden': 'true' },
+                                    String(index + 1),
                                   ),
-                                  title: t('searchAdd').replace('{station}', station.name),
-                                  onClick: () => addFound(station),
-                                },
-                                h(
-                                  'span',
-                                  { className: 'dsh-nr-result-main' },
-                                  h('span', { className: 'dsh-nr-result-name' }, station.name),
-                                  meta
-                                    ? h('span', { className: 'dsh-nr-result-meta' }, meta)
-                                    : null,
-                                ),
-                                h(
-                                  'span',
-                                  { className: 'dsh-nr-result-plus', 'aria-hidden': 'true' },
-                                  '+',
-                                ),
-                              );
-                            }),
+                                  h(
+                                    'span',
+                                    { className: 'dsh-nr-result-main' },
+                                    h('span', { className: 'dsh-nr-result-name' }, station.name),
+                                    meta
+                                      ? h('span', { className: 'dsh-nr-result-meta' }, meta)
+                                      : null,
+                                  ),
+                                  h(
+                                    'span',
+                                    { className: 'dsh-nr-result-plus', 'aria-hidden': 'true' },
+                                    '+',
+                                  ),
+                                );
+                              }),
+                            ),
                     )
                   : null,
               )
