@@ -1821,8 +1821,7 @@ window.__ModuleLoader__.load({
       };
     }
 
-    function celestialAt(minute, location) {
-      const date = new Date();
+    function celestialAt(minute, location, date = new Date()) {
       const moon = moonFor(date);
       const solar = solarFor(location, date);
       const southern = !!(location && location.lat < 0);
@@ -1862,9 +1861,17 @@ window.__ModuleLoader__.load({
       return moonBodyAt(date, location, moon, southern);
     }
 
+    function dateAtPreviewMinute(minute) {
+      const date = new Date();
+      const stamp = ((minute % 1440) + 1440) % 1440;
+      date.setHours(Math.floor(stamp / 60), Math.floor(stamp % 60), 0, 0);
+      return date;
+    }
+
     function currentCelestial() {
-      const minute = skyPreview === null ? secondsOfDay() / 60 : skyPreview;
-      return celestialAt(minute, resolveSkyLocation(skyGeo));
+      const location = resolveSkyLocation(skyGeo);
+      if (skyPreview === null) return celestialAt(secondsOfDay() / 60, location, new Date());
+      return celestialAt(skyPreview, location, dateAtPreviewMinute(skyPreview));
     }
 
     // A tiny live sky thumbnail behind the composer sparkle: a warm or cool
@@ -3696,6 +3703,7 @@ window.__ModuleLoader__.load({
     const MAX_RETRIES = 3;
     const RETRY_DELAYS_MS = [1500, 3000, 6000];
     const STATION_PATTERN = /^https:\/\/radio\.garden\/listen\/([A-Za-z0-9._~-]+)\/([A-Za-z0-9_-]{4,64})\/?$/i;
+    const RADIO_BROWSER_ENDPOINT = 'https://de1.api.radio-browser.info/json/stations/search';
     // The five stations that ship with the player. Smooth Jazz is the
     // default active station; all five are fixed and cannot be removed.
     const SEED_STATIONS = [
@@ -3711,7 +3719,7 @@ window.__ModuleLoader__.load({
     const EN = {
       play: 'Play {station}',
       pause: 'Pause {station}',
-      tooltipPlay: 'Play {station} — streamed via Radio Garden',
+      tooltipPlay: 'Play {station}',
       tooltipPause: 'Pause {station}',
       tooltipConnecting: 'Connecting to {station}…',
       tooltipBuffering: 'Buffering {station}…',
@@ -3735,14 +3743,21 @@ window.__ModuleLoader__.load({
       stateReconnecting: 'Reconnecting…',
       stateError: 'Stream unavailable',
       stateArmed: 'Click to start',
-      hint: 'Streams via Radio Garden.',
+      hint: 'Streams via Radio Garden, with discovery from Radio Browser.',
       addToggle: 'Add station',
-      addHint: 'Paste a radio.garden/listen/… station URL.',
+      addHint: 'Search by name, or paste a radio.garden/listen/… station URL.',
       cancel: 'Cancel',
-      addLabel: 'Add station',
-      addPlaceholder: 'https://radio.garden/listen/…',
+      addLabel: 'Find or add station',
+      addPlaceholder: 'Search stations or paste a URL',
       addButton: 'Add',
-      addInvalid: 'Use a radio.garden/listen/… station URL.',
+      searchButton: 'Search',
+      searching: 'Searching…',
+      searchEmpty: 'No stations found.',
+      searchError: 'Station search is unavailable right now.',
+      searchMin: 'Type at least two characters.',
+      searchResults: 'Search results',
+      searchAdd: 'Add {station}',
+      addInvalid: 'Use a radio.garden/listen/… URL, or search by station name.',
       addDuplicate: 'That station is already in the list.',
       addLimit: 'You can save up to 20 stations.',
     };
@@ -4015,11 +4030,83 @@ window.__ModuleLoader__.load({
   font-size: 14px;
   line-height: 1;
 }
+.dsh-nr-add-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .dsh-nr-add-form {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.dsh-nr-search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 210px;
+  overflow-y: auto;
+  padding: 1px 0 2px;
+}
+.dsh-nr-search-status {
+  padding: 5px 2px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.dsh-nr-search-status.is-error { color: var(--dsw-alias-state-error-primary); }
+.dsh-nr-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.dsh-nr-result:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-result:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+.dsh-nr-result-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.dsh-nr-result-name {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-nr-result-meta {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-nr-result-plus {
+  flex: none;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 15px;
+  line-height: 1;
 }
 .dsh-nr-input {
   flex: 1;
@@ -4052,6 +4139,10 @@ window.__ModuleLoader__.load({
   cursor: pointer;
 }
 .dsh-nr-add:hover { background: var(--dsw-alias-button-primary-hover); }
+.dsh-nr-add:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .dsh-nr-add:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
@@ -4331,6 +4422,52 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function validStreamUrl(value) {
+      if (typeof value !== 'string') return false;
+      const text = value.trim();
+      if (!text || text.length > 500) return false;
+      try {
+        const url = new URL(text);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }
+
+    function normalizeDirectStation(entry) {
+      if (!entry || typeof entry !== 'object') return null;
+      const streamUrl = String(entry.streamUrl || '').trim();
+      if (!validStreamUrl(streamUrl)) return null;
+      const id = String(entry.id || '').trim().slice(0, 80);
+      const name = String(entry.name || '').trim().slice(0, 100);
+      if (!id || !name) return null;
+      const url = validStreamUrl(entry.url) ? String(entry.url).trim().slice(0, 500) : streamUrl;
+      return { id, name, url, streamUrl, source: 'radio-browser' };
+    }
+
+    function stationFromSearchResult(entry) {
+      if (!entry || typeof entry !== 'object') return null;
+      if (Number(entry.hls) === 1 || Number(entry.lastcheckok) === 0) return null;
+      const streamUrl = String(entry.url_resolved || entry.url || '').trim();
+      if (!validStreamUrl(streamUrl) || /\.m3u8(?:$|\?)/i.test(streamUrl)) return null;
+      const uuid = String(entry.stationuuid || '').trim();
+      const name = String(entry.name || '').trim().slice(0, 100);
+      if (!uuid || !name) return null;
+      const homepage = validStreamUrl(entry.homepage)
+        ? String(entry.homepage).trim().slice(0, 500)
+        : streamUrl;
+      return {
+        id: ('rb-' + uuid.replace(/[^A-Za-z0-9_-]/g, '')).slice(0, 80),
+        name,
+        url: homepage,
+        streamUrl,
+        source: 'radio-browser',
+        country: String(entry.country || '').trim().slice(0, 60),
+        bitrate: Number(entry.bitrate) || 0,
+        codec: String(entry.codec || '').trim().slice(0, 20),
+      };
+    }
+
     function readStations() {
       const list = SEED_STATIONS.map((station) => ({ ...station }));
       try {
@@ -4341,6 +4478,14 @@ window.__ModuleLoader__.load({
         if (!Array.isArray(parsed)) return list;
         for (const entry of parsed) {
           if (list.length >= MAX_STATIONS) break;
+          const direct = normalizeDirectStation(entry);
+          if (direct) {
+            if (list.some((item) => item.id === direct.id || item.streamUrl === direct.streamUrl)) {
+              continue;
+            }
+            list.push(direct);
+            continue;
+          }
           const station = parseStationUrl(entry && typeof entry === 'object' ? entry.url : '');
           if (!station) continue;
           if (list.some((item) => item.id === station.id)) continue;
@@ -4368,7 +4513,14 @@ window.__ModuleLoader__.load({
 
     function persistStations() {
       try {
-        const data = stations.map((station) => ({ id: station.id, url: station.url }));
+        const data = stations.map((station) => {
+          const item = { id: station.id, url: station.url };
+          if (station.streamUrl) {
+            item.name = station.name;
+            item.streamUrl = station.streamUrl;
+          }
+          return item;
+        });
         window.localStorage.setItem(STATIONS_KEY, JSON.stringify(data));
       } catch {
         /* The current session still keeps the list in memory. */
@@ -4391,6 +4543,7 @@ window.__ModuleLoader__.load({
     }
 
     function streamUrlFor(station) {
+      if (station && station.streamUrl) return station.streamUrl;
       return (
         'https://radio.garden/api/ara/content/listen/' +
         encodeURIComponent(station.id) +
@@ -5292,8 +5445,12 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState('');
       const [error, setError] = useState('');
       const [adding, setAdding] = useState(false);
+      const [results, setResults] = useState([]);
+      const [searching, setSearching] = useState(false);
+      const [searchError, setSearchError] = useState('');
       const addInputRef = useRef(null);
       const addToggleRef = useRef(null);
+      const searchAbortRef = useRef(null);
       const percent = Math.round(state.volume * 100);
       const status = state.failed
         ? t('stateError')
@@ -5325,12 +5482,25 @@ window.__ModuleLoader__.load({
         background:
           'linear-gradient(135deg, hsl(' + hue + ', 72%, 55%), hsl(' + ((hue + 48) % 360) + ', 72%, 42%))',
       };
+      const urlDraft = STATION_PATTERN.test(draft.trim());
+      const submitLabel = searching
+        ? t('searching')
+        : urlDraft
+          ? t('addButton')
+          : t('searchButton');
 
       useEffect(() => {
         if (!adding) return;
         const input = addInputRef.current;
         if (input && typeof input.focus === 'function') input.focus();
       }, [adding]);
+
+      useEffect(
+        () => () => {
+          if (searchAbortRef.current) searchAbortRef.current.abort();
+        },
+        [],
+      );
 
       function focusToggle() {
         window.setTimeout(() => {
@@ -5342,28 +5512,103 @@ window.__ModuleLoader__.load({
       function openAdd() {
         setAdding(true);
         setError('');
+        setResults([]);
+        setSearchError('');
       }
 
       function closeAdd() {
+        if (searchAbortRef.current) {
+          searchAbortRef.current.abort();
+          searchAbortRef.current = null;
+        }
         setAdding(false);
         setDraft('');
         setError('');
+        setResults([]);
+        setSearchError('');
+        setSearching(false);
         focusToggle();
       }
 
       function onDraftChange(event) {
+        if (searchAbortRef.current) {
+          searchAbortRef.current.abort();
+          searchAbortRef.current = null;
+          setSearching(false);
+        }
         setDraft(event.target.value);
         if (error) setError('');
+        if (results.length) setResults([]);
+        if (searchError) setSearchError('');
       }
 
-      function onAdd(event) {
-        event.preventDefault();
-        const parsed = parseStationUrl(draft);
-        if (!parsed) {
-          setError(t('addInvalid'));
+      function runSearch(query) {
+        if (!query || query.length < 2) {
+          setError(t('searchMin'));
           return;
         }
-        if (stations.some((station) => station.id === parsed.id)) {
+        if (searchAbortRef.current) searchAbortRef.current.abort();
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        searchAbortRef.current = controller;
+        setSearching(true);
+        setSearchError('');
+        setResults([]);
+        const params = new URLSearchParams({
+          limit: '10',
+          hidebroken: 'true',
+          order: 'clickcount',
+          reverse: 'true',
+          name: query,
+        });
+        window
+          .fetch(RADIO_BROWSER_ENDPOINT + '?' + params.toString(), {
+            cache: 'no-store',
+            credentials: 'omit',
+            headers: { Accept: 'application/json' },
+            signal: controller ? controller.signal : undefined,
+          })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            if (!controller || searchAbortRef.current !== controller) return;
+            const seen = new Set();
+            const next = [];
+            for (const item of Array.isArray(data) ? data : []) {
+              const station = stationFromSearchResult(item);
+              if (!station || seen.has(station.id)) continue;
+              if (
+                stations.some(
+                  (existing) =>
+                    existing.id === station.id || existing.streamUrl === station.streamUrl,
+                )
+              ) {
+                continue;
+              }
+              seen.add(station.id);
+              next.push(station);
+              if (next.length >= 8) break;
+            }
+            if (!next.length) setSearchError(t('searchEmpty'));
+            else setResults(next);
+          })
+          .catch((error) => {
+            if (controller && controller.signal.aborted) return;
+            setSearchError(t('searchError'));
+          })
+          .finally(() => {
+            if (controller && searchAbortRef.current === controller) {
+              searchAbortRef.current = null;
+              setSearching(false);
+            }
+          });
+      }
+
+      function addFound(station) {
+        if (!station) return;
+        if (
+          stations.some(
+            (existing) => existing.id === station.id || existing.streamUrl === station.streamUrl,
+          )
+        ) {
           setError(t('addDuplicate'));
           return;
         }
@@ -5371,13 +5616,51 @@ window.__ModuleLoader__.load({
           setError(t('addLimit'));
           return;
         }
-        stations.push(parsed);
+        stations.push(station);
         persistStations();
         setDraft('');
         setError('');
+        setResults([]);
+        setSearchError('');
         setAdding(false);
-        switchStation(parsed.id);
+        switchStation(station.id);
         focusToggle();
+      }
+
+      function onAdd(event) {
+        event.preventDefault();
+        const text = draft.trim();
+        if (!text) {
+          setError(t('searchMin'));
+          return;
+        }
+        const parsed = parseStationUrl(text);
+        if (parsed) {
+          if (stations.some((station) => station.id === parsed.id)) {
+            setError(t('addDuplicate'));
+            return;
+          }
+          if (stations.length >= MAX_STATIONS) {
+            setError(t('addLimit'));
+            return;
+          }
+          stations.push(parsed);
+          persistStations();
+          setDraft('');
+          setError('');
+          setResults([]);
+          setSearchError('');
+          setAdding(false);
+          switchStation(parsed.id);
+          focusToggle();
+          return;
+        }
+        if (/^https?:\/\//i.test(text)) {
+          setError(t('addInvalid'));
+          return;
+        }
+        setError('');
+        runSearch(text);
       }
 
       function onFormKeyDown(event) {
@@ -5478,32 +5761,90 @@ window.__ModuleLoader__.load({
           ),
           adding
             ? h(
-                'form',
-                { className: 'dsh-nr-add-form', onSubmit: onAdd, onKeyDown: onFormKeyDown },
-                h('input', {
-                  ref: addInputRef,
-                  className: 'dsh-nr-input' + (error ? ' is-invalid' : ''),
-                  type: 'text',
-                  value: draft,
-                  maxLength: 300,
-                  autoComplete: 'off',
-                  spellCheck: 'false',
-                  inputMode: 'url',
-                  placeholder: t('addPlaceholder'),
-                  'aria-label': t('addLabel'),
-                  'aria-invalid': error ? 'true' : undefined,
-                  onChange: onDraftChange,
-                }),
+                'div',
+                { className: 'dsh-nr-add-wrap' },
                 h(
-                  'button',
-                  { className: 'dsh-nr-add', type: 'submit' },
-                  t('addButton'),
+                  'form',
+                  { className: 'dsh-nr-add-form', onSubmit: onAdd, onKeyDown: onFormKeyDown },
+                  h('input', {
+                    ref: addInputRef,
+                    className: 'dsh-nr-input' + (error ? ' is-invalid' : ''),
+                    type: 'text',
+                    value: draft,
+                    maxLength: 300,
+                    autoComplete: 'off',
+                    spellCheck: 'false',
+                    inputMode: 'search',
+                    placeholder: t('addPlaceholder'),
+                    'aria-label': t('addLabel'),
+                    'aria-invalid': error ? 'true' : undefined,
+                    'aria-busy': searching ? 'true' : undefined,
+                    onChange: onDraftChange,
+                  }),
+                  h(
+                    'button',
+                    { className: 'dsh-nr-add', type: 'submit', disabled: searching },
+                    submitLabel,
+                  ),
+                  h(
+                    'button',
+                    { className: 'dsh-nr-cancel', type: 'button', onClick: closeAdd },
+                    t('cancel'),
+                  ),
                 ),
-                h(
-                  'button',
-                  { className: 'dsh-nr-cancel', type: 'button', onClick: closeAdd },
-                  t('cancel'),
-                ),
+                searching || searchError || results.length
+                  ? h(
+                      'div',
+                      { className: 'dsh-nr-search-panel', 'aria-label': t('searchResults') },
+                      searching
+                        ? h(
+                            'div',
+                            { className: 'dsh-nr-search-status', role: 'status' },
+                            t('searching'),
+                          )
+                        : searchError
+                          ? h(
+                              'div',
+                              { className: 'dsh-nr-search-status is-error', role: 'status' },
+                              searchError,
+                            )
+                          : results.map((station) => {
+                              const meta = [
+                                station.country,
+                                station.bitrate ? station.bitrate + ' kbps' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ');
+                              return h(
+                                'button',
+                                {
+                                  key: station.id,
+                                  type: 'button',
+                                  className: 'dsh-nr-result',
+                                  'aria-label': t('searchAdd').replace(
+                                    '{station}',
+                                    station.name,
+                                  ),
+                                  title: t('searchAdd').replace('{station}', station.name),
+                                  onClick: () => addFound(station),
+                                },
+                                h(
+                                  'span',
+                                  { className: 'dsh-nr-result-main' },
+                                  h('span', { className: 'dsh-nr-result-name' }, station.name),
+                                  meta
+                                    ? h('span', { className: 'dsh-nr-result-meta' }, meta)
+                                    : null,
+                                ),
+                                h(
+                                  'span',
+                                  { className: 'dsh-nr-result-plus', 'aria-hidden': 'true' },
+                                  '+',
+                                ),
+                              );
+                            }),
+                    )
+                  : null,
               )
             : h(
                 'button',
