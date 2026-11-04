@@ -31,6 +31,7 @@ window.__ModuleLoader__.load({
     const GEO_TTL_MS = 24 * 60 * 60 * 1000;
     const GEO_ENDPOINT = 'https://ipwho.is/';
     const WEATHER_KEY = 'dsh.nebula-weather';
+    const WEATHER_ENABLED_KEY = 'dsh.nebula-weather.enabled';
     const WEATHER_TTL_MS = 15 * 60 * 1000;
     const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/forecast';
     const DEVICE_ZONE = (() => {
@@ -68,6 +69,9 @@ window.__ModuleLoader__.load({
       ambienceLabel: 'Ambience',
       ambienceActionOn: 'Turn off the ambience',
       ambienceActionOff: 'Turn on the ambience',
+      weatherLabel: 'Weather',
+      weatherActionOn: 'Turn live weather off',
+      weatherActionOff: 'Turn live weather on',
       ambienceOffStatus: 'Ambience off',
       skyHintAmbienceOff: 'Ambience is off. Turn it on above to see the sky.',
       skyTitle: 'Nebula Sky',
@@ -444,6 +448,7 @@ window.__ModuleLoader__.load({
 
     let skyGeo = readGeo();
     let weather = readWeather();
+    let weatherEnabled = readWeatherEnabled();
 
     // null follows the clock; a number pins the sky to that minute for preview.
     let skyPreview = null;
@@ -503,6 +508,15 @@ window.__ModuleLoader__.load({
         /* No cached weather. */
       }
       return null;
+    }
+
+    function readWeatherEnabled() {
+      try {
+        const raw = window.localStorage.getItem(WEATHER_ENABLED_KEY);
+        return raw === null ? true : raw !== '0';
+      } catch {
+        return true;
+      }
     }
 
     function weatherKind(code) {
@@ -660,7 +674,7 @@ window.__ModuleLoader__.load({
           }
           emit();
           requestStaticRedraw();
-          refreshWeather(resolveSkyLocation(skyGeo));
+          if (weatherEnabled) refreshWeather(resolveSkyLocation(skyGeo));
         })
         .catch(() => {
           /* The sun markers stay hidden when the lookup fails. */
@@ -679,6 +693,23 @@ window.__ModuleLoader__.load({
       if (fallback) return fallback;
       if (!geo.tz) return { lat: geo.lat, lon: geo.lon };
       return null;
+    }
+
+    function setWeatherEnabled(next) {
+      if (weatherEnabled === next) return;
+      weatherEnabled = next;
+      try {
+        window.localStorage.setItem(WEATHER_ENABLED_KEY, next ? '1' : '0');
+      } catch {
+        /* Private mode: the session preference still applies. */
+      }
+      if (next) {
+        refreshWeather(resolveSkyLocation(skyGeo));
+      } else if (weatherController) {
+        weatherController.abort();
+      }
+      emit();
+      requestStaticRedraw();
     }
 
     function setSkyEnabled(next) {
@@ -787,6 +818,17 @@ window.__ModuleLoader__.load({
         };
       }, []);
       return skyGeo;
+    }
+
+    function useWeatherEnabled() {
+      const [, force] = useReducer((version) => version + 1, 0);
+      useEffect(() => {
+        listeners.add(force);
+        return () => {
+          listeners.delete(force);
+        };
+      }, []);
+      return weatherEnabled;
     }
 
     // The composer control repaints its own sky thumbnail, so it needs a clock
@@ -1744,7 +1786,7 @@ window.__ModuleLoader__.load({
           const light = scheme === 'light';
           const sky = skyEnabled ? currentSky() : null;
           const body = sky ? currentCelestial() : null;
-          const currentWeather = weather;
+          const currentWeather = weatherEnabled ? weather : null;
           const starDim = weatherStarDim(currentWeather);
           const bodyDim = weatherBodyDim(currentWeather);
           let palette = light ? LIGHT : DARK;
@@ -2170,6 +2212,7 @@ window.__ModuleLoader__.load({
     function SkyRow() {
       const ambienceOn = useAmbienceEnabled();
       const skyOn = useSkyEnabled();
+      const weatherOn = useWeatherEnabled();
       const themeOn = themeApi.useEnabled();
       const preview = useSkyPreview();
       const geo = useSkyGeo();
@@ -2398,6 +2441,14 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'dsh-sky-options' },
             option('clock', t('skyFollow'), skyOn, () => setSkyEnabled(!skyEnabled), 'skyActionOn', 'skyActionOff'),
+            option(
+              'weather',
+              t('weatherLabel'),
+              weatherOn,
+              () => setWeatherEnabled(!weatherEnabled),
+              'weatherActionOn',
+              'weatherActionOff',
+            ),
             option('theme', t('themeLabel'), themeOn, () => themeApi.setEnabled(!themeOn), 'themeActionOn', 'themeActionOff'),
             option(
               'ambience',
@@ -2443,9 +2494,9 @@ window.__ModuleLoader__.load({
         });
 
         ctx.effect(() => {
-          refreshWeather(resolveSkyLocation(skyGeo));
+          if (weatherEnabled) refreshWeather(resolveSkyLocation(skyGeo));
           const timer = window.setInterval(() => {
-            refreshWeather(resolveSkyLocation(skyGeo));
+            if (weatherEnabled) refreshWeather(resolveSkyLocation(skyGeo));
           }, WEATHER_TTL_MS);
           return () => {
             window.clearInterval(timer);

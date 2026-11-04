@@ -62,7 +62,7 @@ link:/absolute/path/to/dsh-nebula
 | Follow the clock | Composer sparkle, or the Nebula Sky switch |
 | Preview an hour | Drag the Nebula Sky strip (arrow keys, Home/End) |
 | Return to live | **Live**, beside the sky status |
-| Nebula theme / Ambience | Nebula Sky switches |
+| Nebula theme / Ambience / Weather | Nebula Sky switches |
 | Play / pause | Composer radio-tower icon or OS media keys |
 | Stations, volume, Add station | Settings → General → Nebula Station |
 
