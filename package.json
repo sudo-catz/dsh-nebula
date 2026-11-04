@@ -1,8 +1,8 @@
 {
   "name": "dsh-nebula",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
-  "description": "Nebula: an aurora and a time-aware sky, a deep-space theme, and a Radio Garden station player for the DeepSeek Harness Web UI.",
+  "description": "Nebula: an aurora and a time-aware sky with live weather, a deep-space theme, and a Radio Garden station player for the DeepSeek Harness Web UI.",
   "license": "MIT",
   "author": "sudo-catz",
   "homepage": "https://github.com/sudo-catz/dsh-nebula#readme",
@@ -24,7 +24,10 @@
     "daylight",
     "radio",
     "radio-garden",
-    "web-ui"
+    "web-ui",
+    "weather",
+    "moon",
+    "noaa"
   ],
   "exports": {
     ".": "./index.js",

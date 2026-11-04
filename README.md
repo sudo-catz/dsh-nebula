@@ -36,7 +36,7 @@ dsh-nebula
 or pin the release:
 
 ```
-dsh-nebula@1.1.0
+dsh-nebula@1.2.0
 ```
 
 `main` may be newer than the published npm release.
@@ -44,10 +44,10 @@ dsh-nebula@1.1.0
 ### From Git
 
 ```
-git+https://github.com/sudo-catz/dsh-nebula.git#c29d0f8ec5a7665bb448202ac891352e49b69bca
+git+https://github.com/sudo-catz/dsh-nebula.git#v1.2.0
 ```
 
-That commit is the `v1.1.0` release. Omit the `#…` to follow `main`.
+That tag is the `v1.2.0` release. Omit the `#…` to follow `main`.
 
 ### From a local checkout
 
