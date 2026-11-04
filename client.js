@@ -121,20 +121,26 @@ window.__ModuleLoader__.load({
   flex: none;
   border: 0;
   border-radius: 8px;
-  background: transparent;
+  background-color: transparent;
+  background-image: var(--dsh-nebula-sky-bg, none);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, box-shadow 140ms ease, color 140ms ease;
 }
 .dsh-nebula-toggle:hover {
-  background: var(--dsw-alias-bg-layer-2);
+  background-color: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
 }
 .dsh-nebula-toggle:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
 }
-.dsh-nebula-toggle.is-on { color: var(--dsw-alias-brand-primary); }
+.dsh-nebula-toggle.is-on {
+  color: var(--dsw-alias-label-primary);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14);
+}
 .dsh-nebula-toggle .dsh-nebula-glyph { display: block; }
 .dsh-nebula-toggle.is-on .dsh-nebula-glyph {
   filter: drop-shadow(0 0 4px var(--dsw-alias-brand-primary));
@@ -503,6 +509,7 @@ window.__ModuleLoader__.load({
             /* Private mode: the session location still applies. */
           }
           emit();
+          requestStaticRedraw();
         })
         .catch(() => {
           /* The sun markers stay hidden when the lookup fails. */
@@ -629,6 +636,26 @@ window.__ModuleLoader__.load({
         };
       }, []);
       return skyGeo;
+    }
+
+    // The composer control repaints its own sky thumbnail, so it needs a clock
+    // tick even while Settings is closed.
+    function useSkyMinute() {
+      const [minute, setMinute] = useState(() => minuteOfDay());
+      useEffect(() => {
+        const sync = () => {
+          const next = minuteOfDay();
+          setMinute((previous) => (previous === next ? previous : next));
+        };
+        sync();
+        const timer = window.setInterval(sync, 15000);
+        document.addEventListener('visibilitychange', sync);
+        return () => {
+          window.clearInterval(timer);
+          document.removeEventListener('visibilitychange', sync);
+        };
+      }, []);
+      return minute;
     }
 
     // The sky is designed for the dark palette. On the first run of this
@@ -838,7 +865,7 @@ window.__ModuleLoader__.load({
       else if (phase < 0.72) key = 'moonWaningGibbous';
       else if (phase < 0.78) key = 'moonLastQuarter';
       else key = 'moonWaningCrescent';
-      return { key, illumination };
+      return { key, illumination, value: phase };
     }
 
     function pad2(value) {
@@ -906,6 +933,116 @@ window.__ModuleLoader__.load({
           y: mixNumber(from.orb.y, to.orb.y, ease),
         },
       };
+    }
+
+    // Where the sun or moon would be for this local minute. Sunrise and sunset
+    // come from the same solar math as the Settings markers; without a
+    // location, a plain 06:00/18:00 day still gives the background a motion.
+    function celestialAt(minute, location) {
+      const date = new Date();
+      const moon = moonPhase(date);
+      const solar = location ? sunTimes(location, date) : null;
+      if (solar && solar.kind === 'midnightSun') {
+        return {
+          kind: 'sun',
+          t: 0.5,
+          x: 0.5,
+          y: 0.13,
+          phase: moon.value,
+          illumination: moon.illumination,
+        };
+      }
+      if (solar && solar.kind === 'polarNight') {
+        return {
+          kind: 'moon',
+          t: 0.5,
+          x: 0.5,
+          y: 0.16,
+          phase: moon.value,
+          illumination: moon.illumination,
+        };
+      }
+      const sunrise = solar && solar.kind === 'normal' ? solar.sunrise : 360;
+      const sunset = solar && solar.kind === 'normal' ? solar.sunset : 1080;
+      const stamp = ((minute % 1440) + 1440) % 1440;
+      const left = 0.14;
+      const right = 0.86;
+      if (stamp >= sunrise && stamp < sunset) {
+        const t = (stamp - sunrise) / Math.max(1, sunset - sunrise);
+        return {
+          kind: 'sun',
+          t,
+          x: left + (right - left) * t,
+          y: 0.34 - 0.2 * Math.sin(Math.PI * t),
+          phase: moon.value,
+          illumination: moon.illumination,
+        };
+      }
+      const night = Math.max(1, 1440 - sunset + sunrise);
+      const elapsed = stamp >= sunset ? stamp - sunset : 1440 - sunset + stamp;
+      const t = Math.min(1, Math.max(0, elapsed / night));
+      return {
+        kind: 'moon',
+        t,
+        x: left + (right - left) * t,
+        y: 0.34 - 0.18 * Math.sin(Math.PI * t),
+        phase: moon.value,
+        illumination: moon.illumination,
+      };
+    }
+
+    let celestialMemoKey = '';
+    let celestialMemo = null;
+    function currentCelestial() {
+      const minute = skyPreview === null ? minuteOfDay() : skyPreview;
+      const location = resolveSkyLocation(skyGeo);
+      const key =
+        minute +
+        '|' +
+        new Date().toDateString() +
+        '|' +
+        (location ? location.lat + ',' + location.lon : 'none');
+      if (key !== celestialMemoKey) {
+        celestialMemoKey = key;
+        celestialMemo = celestialAt(minute, location);
+      }
+      return celestialMemo;
+    }
+
+    // A tiny live sky thumbnail behind the composer sparkle: a warm or cool
+    // sun/moon spot over the current two sky colors.
+    function skyButtonBackground(sky, body) {
+      if (!sky) return 'none';
+      const [a, b, c] = sky.colors;
+      const isSun = body && body.kind === 'sun';
+      const x = body ? Math.round(10 + body.x * 80) : 50;
+      const y = body ? Math.round(20 + body.y * 58) : 34;
+      const color = isSun ? '255,226,170' : '205,222,255';
+      const glow = isSun ? 0.82 : 0.45 + 0.45 * (body ? body.illumination / 100 : 0);
+      return (
+        'radial-gradient(circle at ' +
+        x +
+        '% ' +
+        y +
+        '%, rgba(' +
+        color +
+        ',' +
+        glow +
+        ') 0 8%, rgba(' +
+        color +
+        ',' +
+        glow * 0.3 +
+        ') 18%, rgba(' +
+        color +
+        ',0) 44%),' +
+        'linear-gradient(145deg, rgba(' +
+        a +
+        ',0.36), rgba(' +
+        b +
+        ',0.15) 54%, rgba(' +
+        c +
+        ',0.3))'
+      );
     }
 
     /* ------------------------------------------------------------------ */
@@ -1010,6 +1147,87 @@ window.__ModuleLoader__.load({
           g.beginPath();
           g.arc(meteor.x, meteor.y, 7, 0, TAU);
           g.fill();
+        }
+
+        function drawMoonShape(cx, cy, r, phase) {
+          const p = ((phase % 1) + 1) % 1;
+          const rx = Math.max(0.001, Math.abs(Math.cos(TAU * p)) * r);
+          g.beginPath();
+          if (p < 0.5) {
+            // Waxing: lit on the right; the terminator swings from the right
+            // rim at new moon, through the middle at first quarter, to the
+            // left rim at full moon.
+            g.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+            g.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, p < 0.25);
+          } else {
+            // Waning: the mirror image, lit on the left.
+            g.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, true);
+            g.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, p < 0.75);
+          }
+          g.closePath();
+        }
+
+        function drawCelestial(body, sky) {
+          if (!body || !sky) return;
+          const span = Math.max(w, h);
+          const isSun = body.kind === 'sun';
+          const r = Math.max(8, Math.min(18, span * (isSun ? 0.0125 : 0.011)));
+          const cx = Math.max(18, Math.min(w - 18, body.x * w));
+          const cy = Math.max(22, Math.min(h - 22, body.y * h));
+          const color = isSun ? sky.orb.c : '208,222,255';
+          const lit = Math.max(0, Math.min(1, body.illumination / 100));
+          const alpha = isSun ? 0.72 : 0.55 + 0.45 * lit;
+          const glowRadius = r * (isSun ? 8 : 7);
+          const glowAlpha = isSun ? 0.2 : 0.04 + 0.14 * lit;
+
+          g.globalCompositeOperation = 'lighter';
+          const glow = g.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
+          glow.addColorStop(0, 'rgba(' + color + ',' + glowAlpha + ')');
+          glow.addColorStop(0.22, 'rgba(' + color + ',' + glowAlpha * 0.55 + ')');
+          glow.addColorStop(0.55, 'rgba(' + color + ',' + glowAlpha * 0.16 + ')');
+          glow.addColorStop(1, 'rgba(' + color + ',0)');
+          g.fillStyle = glow;
+          g.fillRect(cx - glowRadius, cy - glowRadius, glowRadius * 2, glowRadius * 2);
+
+          if (isSun) {
+            g.fillStyle = 'rgba(255,247,224,' + 0.78 * alpha + ')';
+            g.beginPath();
+            g.arc(cx, cy, r, 0, TAU);
+            g.fill();
+
+            g.fillStyle = 'rgba(255,255,250,' + 0.9 * alpha + ')';
+            g.beginPath();
+            g.arc(cx, cy, r * 0.58, 0, TAU);
+            g.fill();
+
+            g.strokeStyle = 'rgba(' + color + ',' + 0.32 * alpha + ')';
+            g.lineWidth = 1;
+            g.beginPath();
+            g.arc(cx, cy, r + 3, 0, TAU);
+            g.stroke();
+          } else {
+            // The unlit disc is a faint silhouette; the lit part is cut with
+            // two arcs so the phase is a real shape rather than a full disc.
+            g.globalCompositeOperation = 'source-over';
+            g.fillStyle = 'rgba(190,210,245,' + (0.04 + 0.06 * lit) + ')';
+            g.beginPath();
+            g.arc(cx, cy, r, 0, TAU);
+            g.fill();
+
+            if (lit > 0.02) {
+              g.globalCompositeOperation = 'lighter';
+              g.fillStyle = 'rgba(238,244,255,' + (0.6 + 0.3 * lit) + ')';
+              drawMoonShape(cx, cy, r, body.phase);
+              g.fill();
+            } else {
+              g.strokeStyle = 'rgba(196,216,250,0.14)';
+              g.lineWidth = 1;
+              g.beginPath();
+              g.arc(cx, cy, r, 0, TAU);
+              g.stroke();
+            }
+          }
+          g.globalCompositeOperation = 'lighter';
         }
 
         function draw(now, dt) {
@@ -1140,6 +1358,8 @@ window.__ModuleLoader__.load({
             }
           }
 
+          if (!light && sky) drawCelestial(currentCelestial(), sky);
+
           if (!light) {
             g.globalCompositeOperation = 'source-over';
             const vignette = g.createRadialGradient(
@@ -1183,6 +1403,11 @@ window.__ModuleLoader__.load({
           draw(4200, 0);
         }
         requestStaticRedraw = drawStill;
+
+        // Reduced motion has no frame loop; keep the still frame on the clock.
+        const stillTimer = window.setInterval(() => {
+          if (!disposed && visible) drawStill();
+        }, 30000);
 
         function onResize() {
           resize();
@@ -1235,6 +1460,7 @@ window.__ModuleLoader__.load({
         return () => {
           disposed = true;
           if (requestStaticRedraw === drawStill) requestStaticRedraw = () => {};
+          window.clearInterval(stillTimer);
           cancelAnimationFrame(raf);
           raf = 0;
           window.removeEventListener('resize', onResize);
@@ -1273,6 +1499,12 @@ window.__ModuleLoader__.load({
 
     function NebulaToggle() {
       const on = useSkyEnabled();
+      const minute = useSkyMinute();
+      const geo = useSkyGeo();
+      const location = resolveSkyLocation(geo);
+      const sky = skyAt(minute);
+      const body = celestialAt(minute, location);
+      const skyBackground = on ? skyButtonBackground(sky, body) : 'none';
       const action = t(on ? 'actionOn' : 'actionOff');
       const hint = t(on ? 'toggleOn' : 'toggleOff');
       return h(
@@ -1285,6 +1517,7 @@ window.__ModuleLoader__.load({
             key: 'button',
             type: 'button',
             className: 'dsh-nebula-toggle' + (on ? ' is-on' : ''),
+            style: { '--dsh-nebula-sky-bg': skyBackground },
             'aria-pressed': on,
             'aria-label': action,
             title: hint,

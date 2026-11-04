@@ -11,11 +11,11 @@
 ## Features
 
 - **Ambience** — a pointer-aware aurora and starfield across the whole frame. On by default.
-- **Sky** — follows your local clock from dawn to night, with sunrise and sunset markers and the current moon phase on the Settings strip. Drag the strip to preview any hour; **Live** returns to the clock.
+- **Sky** — follows your local clock from dawn to night. The page background carries a sun by day and a phase-accurate moon at night, while the Settings strip shows sunrise, sunset, and the moon phase. Drag the strip to preview any hour; **Live** returns to the clock.
 - **Theme** — a deep-space palette for the whole app, with a lavender light variant, applied as a token skin.
 - **Station** — five Radio Garden stations: Smooth Jazz 24/7 (default), Fox News Radio, FM Kahoku 78.8 FM, Ashiya Radio, and Listen Moe. Add and remove your own; dropped streams retry automatically.
 
-The composer sparkle is the **Follow the clock** switch. **Settings → General → Nebula Sky** also holds the theme and ambience switches. All three default on, with Dark as the default appearance.
+The composer sparkle is the **Follow the clock** switch, and its background is a tiny live sky for the current hour. **Settings → General → Nebula Sky** also holds the theme and ambience switches. All three default on, with Dark as the default appearance.
 
 ## Install
 
