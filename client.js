@@ -3896,6 +3896,20 @@ window.__ModuleLoader__.load({
   line-height: 18px;
 }
 .dsh-nr-row-state.is-on { color: var(--dsw-alias-state-success-primary); }
+.dsh-nr-row-state.is-on::before,
+.dsh-nr-row-state.is-buffering::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+}
+.dsh-nr-row-state.is-buffering::before {
+  animation: dsh-nr-preview-pulse 900ms ease-in-out infinite;
+}
 .dsh-nr-row-state.is-buffering { color: var(--dsw-alias-brand-primary); }
 .dsh-nr-row-state.is-error { color: var(--dsw-alias-state-error-primary); }
 .dsh-nr-row-state.is-armed { color: var(--dsw-alias-brand-primary); }
@@ -3922,6 +3936,7 @@ window.__ModuleLoader__.load({
 }
 .dsh-nr-avatar {
   flex: none;
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3934,6 +3949,17 @@ window.__ModuleLoader__.load({
   letter-spacing: 0.02em;
   user-select: none;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.dsh-nr-avatar.is-live::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--dsw-alias-bg-layer-1);
+  border-radius: 50%;
+  background: var(--dsw-alias-state-success-primary);
 }
 .dsh-nr-select {
   flex: 1;
@@ -3950,6 +3976,37 @@ window.__ModuleLoader__.load({
 .dsh-nr-select:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
+}
+.dsh-nr-play {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-brand-primary);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.dsh-nr-play:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-nr-play.is-playing {
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-text);
+}
+.dsh-nr-play.is-playing:hover {
+  background: var(--dsw-alias-button-primary-hover);
+  color: var(--dsw-alias-brand-text);
+}
+.dsh-nr-play:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
 }
 .dsh-nr-remove {
   flex: none;
@@ -4873,6 +4930,7 @@ window.__ModuleLoader__.load({
         previewState,
         previewStation,
         stopPreview,
+        toggleRadio,
       };
     }
 
@@ -5804,6 +5862,11 @@ window.__ModuleLoader__.load({
                   ? ' is-armed'
                   : '');
       const active = state.active || DEFAULT_SEED;
+      const isLive =
+        state.playing || state.connecting || state.buffering || state.reconnecting;
+      const toggleLabel = isLive
+        ? format('pause', active.name)
+        : format('play', active.name);
       const hue = stationHue(active);
       const avatarStyle = {
         background:
@@ -6130,7 +6193,11 @@ window.__ModuleLoader__.load({
               { className: 'dsh-nr-station-row' },
               h(
                 'span',
-                { className: 'dsh-nr-avatar', style: avatarStyle, 'aria-hidden': 'true' },
+                {
+                  className: 'dsh-nr-avatar' + (state.playing ? ' is-live' : ''),
+                  style: avatarStyle,
+                  'aria-hidden': 'true',
+                },
                 stationInitials(active.name),
               ),
               h(
@@ -6143,6 +6210,51 @@ window.__ModuleLoader__.load({
                 },
                 state.stations.map((station) =>
                   h('option', { key: station.id, value: station.id }, station.name),
+                ),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dsh-nr-play' + (isLive ? ' is-playing' : ''),
+                  'aria-label': toggleLabel,
+                  title: toggleLabel,
+                  onClick: () => state.toggleRadio(),
+                },
+                h(
+                  'svg',
+                  {
+                    viewBox: '0 0 16 16',
+                    width: 14,
+                    height: 14,
+                    'aria-hidden': 'true',
+                    focusable: 'false',
+                  },
+                  isLive
+                    ? [
+                        h('rect', {
+                          key: 'a',
+                          x: 4,
+                          y: 3,
+                          width: 3,
+                          height: 10,
+                          rx: 1,
+                          fill: 'currentColor',
+                        }),
+                        h('rect', {
+                          key: 'b',
+                          x: 9,
+                          y: 3,
+                          width: 3,
+                          height: 10,
+                          rx: 1,
+                          fill: 'currentColor',
+                        }),
+                      ]
+                    : h('path', {
+                        d: 'M5.2 3.1 12.4 8l-7.2 4.9Z',
+                        fill: 'currentColor',
+                      }),
                 ),
               ),
             ),
