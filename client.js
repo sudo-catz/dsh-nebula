@@ -1152,7 +1152,9 @@ window.__ModuleLoader__.load({
           x: Math.random(),
           y: Math.random(),
           r: near ? 0.75 + Math.random() * 1.15 : 0.3 + Math.random() * 0.8,
-          tw: 0.0005 + Math.random() * 0.0022,
+          tw: near
+            ? 0.0004 + Math.random() * 0.0014
+            : 0.0007 + Math.random() * 0.0024,
           ph: Math.random() * TAU,
           d: near ? 0.65 + Math.random() * 0.6 : 0.2 + Math.random() * 0.55,
           a: near ? 0.45 + Math.random() * 0.45 : 0.14 + Math.random() * 0.38,
@@ -1555,6 +1557,7 @@ window.__ModuleLoader__.load({
             const starX = star.x * w + px * star.d * 9;
             const starY = star.y * h + py * star.d * 6;
             let starAlpha = star.a * twinkle * palette.starAlpha;
+            starAlpha *= Math.max(0.18, 1 - Math.max(0, starY / h - HORIZON) * 2.2);
             if (body) {
               const dx = starX - body.x * w;
               const dy = starY - body.y * h;
@@ -1580,6 +1583,7 @@ window.__ModuleLoader__.load({
               const starX = star.x * w + px * star.d * 6;
               const starY = star.y * h + py * star.d * 4;
               let starAlpha = star.a * twinkle * palette.starAlpha * 0.8;
+              starAlpha *= Math.max(0.18, 1 - Math.max(0, starY / h - HORIZON) * 2.2);
               if (body) {
                 const dx = starX - body.x * w;
                 const dy = starY - body.y * h;
