@@ -38,6 +38,9 @@ window.__ModuleLoader__.load({
     const AURORA_TTL_MS = 30 * 60 * 1000;
     const AURORA_ENDPOINT = 'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json';
     const ACCENT_ENABLED_KEY = 'dsh.nebula-accent.enabled';
+    const PRECISE_ENABLED_KEY = 'dsh.nebula-weather.precise';
+    const PRECISE_GEO_KEY = 'dsh.nebula-weather.precise.geo';
+    const PRECISE_TTL_MS = 6 * 60 * 60 * 1000;
     const DEVICE_ZONE = (() => {
       try {
         return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -91,6 +94,9 @@ window.__ModuleLoader__.load({
       accentLabel: 'Sky accent',
       accentActionOn: 'Stop tinting accents with the sky',
       accentActionOff: 'Tint accents with the sky',
+      preciseLabel: 'Precise location',
+      preciseActionOn: 'Use approximate IP location',
+      preciseActionOff: 'Use precise browser location',
       ambienceOffStatus: 'Ambience off',
       skyHintAmbienceOff: 'Ambience is off. Turn it on above to see the sky.',
       skyTitle: 'Nebula Sky',
@@ -488,6 +494,10 @@ window.__ModuleLoader__.load({
     let weatherEnabled = readWeatherEnabled();
     let auroraKp = readAuroraKp();
     let accentEnabled = readAccentEnabled();
+    let preciseEnabled = readPreciseEnabled();
+    let preciseGeo = readPreciseGeo();
+    let preciseStatus = preciseEnabled ? (preciseGeo ? 'on' : 'pending') : 'off';
+    let preciseRequest = 0;
 
     // null follows the clock; a number pins the sky to that minute for preview.
     let skyPreview = null;
@@ -541,6 +551,16 @@ window.__ModuleLoader__.load({
             windSpeed: Number.isFinite(Number(parsed.windSpeed)) ? Number(parsed.windSpeed) : 0,
             windDir: Number.isFinite(Number(parsed.windDir)) ? Number(parsed.windDir) : 0,
             nextPrecip: Number.isFinite(Number(parsed.nextPrecip)) ? Number(parsed.nextPrecip) : 0,
+            rain: Number.isFinite(Number(parsed.rain)) ? Number(parsed.rain) : 0,
+            showers: Number.isFinite(Number(parsed.showers)) ? Number(parsed.showers) : 0,
+            snowfall: Number.isFinite(Number(parsed.snowfall)) ? Number(parsed.snowfall) : 0,
+            probability: Number.isFinite(Number(parsed.probability)) ? Number(parsed.probability) : null,
+            visibility: Number.isFinite(Number(parsed.visibility)) ? Number(parsed.visibility) : null,
+            gust: Number.isFinite(Number(parsed.gust)) ? Number(parsed.gust) : 0,
+            cape: Number.isFinite(Number(parsed.cape)) ? Number(parsed.cape) : 0,
+            nextRain: Number.isFinite(Number(parsed.nextRain)) ? Number(parsed.nextRain) : 0,
+            nextSnow: Number.isFinite(Number(parsed.nextSnow)) ? Number(parsed.nextSnow) : 0,
+            nextCode: Number.isFinite(Number(parsed.nextCode)) ? Number(parsed.nextCode) : null,
             lat: Number(parsed.lat),
             lon: Number(parsed.lon),
             ts: Number(parsed.ts) || 0,
@@ -568,6 +588,105 @@ window.__ModuleLoader__.load({
       } catch {
         return true;
       }
+    }
+
+    function readPreciseEnabled() {
+      try {
+        return window.localStorage.getItem(PRECISE_ENABLED_KEY) === '1';
+      } catch {
+        return false;
+      }
+    }
+
+    function readPreciseGeo() {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(PRECISE_GEO_KEY) || 'null');
+        if (
+          parsed &&
+          Number.isFinite(Number(parsed.lat)) &&
+          Number.isFinite(Number(parsed.lon)) &&
+          Number(parsed.lat) >= -90 &&
+          Number(parsed.lat) <= 90 &&
+          Number(parsed.lon) >= -180 &&
+          Number(parsed.lon) <= 180
+        ) {
+          return {
+            lat: Number(parsed.lat),
+            lon: Number(parsed.lon),
+            ts: Number(parsed.ts) || 0,
+          };
+        }
+      } catch {
+        /* No precise location. */
+      }
+      return null;
+    }
+
+    function requestPreciseLocation() {
+      if (!preciseEnabled) return;
+      const request = ++preciseRequest;
+      if (
+        typeof navigator === 'undefined' ||
+        !navigator.geolocation ||
+        typeof navigator.geolocation.getCurrentPosition !== 'function'
+      ) {
+        preciseStatus = 'unavailable';
+        preciseEnabled = false;
+        try {
+          window.localStorage.setItem(PRECISE_ENABLED_KEY, '0');
+        } catch {
+          /* Session only. */
+        }
+        refreshWeather(resolveSkyLocation(skyGeo));
+        requestStaticRedraw();
+        emit();
+        return;
+      }
+      preciseStatus = 'requesting';
+      emit();
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (request !== preciseRequest || !preciseEnabled) return;
+          const lat = Number(position && position.coords && position.coords.latitude);
+          const lon = Number(position && position.coords && position.coords.longitude);
+          if (
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lon) ||
+            lat < -90 ||
+            lat > 90 ||
+            lon < -180 ||
+            lon > 180
+          ) {
+            preciseStatus = 'unavailable';
+            emit();
+            return;
+          }
+          preciseGeo = { lat, lon, ts: Date.now() };
+          preciseStatus = 'on';
+          try {
+            window.localStorage.setItem(PRECISE_GEO_KEY, JSON.stringify(preciseGeo));
+          } catch {
+            /* Session only. */
+          }
+          refreshWeather(resolveSkyLocation(skyGeo));
+          requestStaticRedraw();
+          emit();
+        },
+        (error) => {
+          if (request !== preciseRequest) return;
+          preciseStatus = error && error.code === 1 ? 'denied' : 'unavailable';
+          preciseEnabled = false;
+          try {
+            window.localStorage.setItem(PRECISE_ENABLED_KEY, '0');
+          } catch {
+            /* Session only. */
+          }
+          refreshWeather(resolveSkyLocation(skyGeo));
+          requestStaticRedraw();
+          emit();
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 600000 },
+      );
     }
 
     function accentForMinute(minute) {
@@ -653,6 +772,29 @@ window.__ModuleLoader__.load({
       return 'clear';
     }
 
+    function effectiveWeatherKind(currentWeather) {
+      if (!currentWeather) return 'clear';
+      const codeKind = weatherKind(currentWeather.code);
+      const rain =
+        Math.max(0, Number(currentWeather.rain) || 0) +
+        Math.max(0, Number(currentWeather.showers) || 0);
+      const snow = Math.max(0, Number(currentWeather.snowfall) || 0);
+      if (codeKind === 'storm') return 'storm';
+      if (snow > 0.02) return 'snow';
+      if (rain > 0.02) {
+        const convective = [80, 81, 82, 95, 96, 99].includes(Number(currentWeather.code));
+        return convective && Number(currentWeather.cape) > 1200 ? 'storm' : 'rain';
+      }
+      if (
+        codeKind === 'fog' ||
+        (Number(currentWeather.visibility) < 1000 &&
+          Number(currentWeather.cloud) > 70)
+      ) {
+        return 'fog';
+      }
+      return codeKind;
+    }
+
     function weatherConditionKey(code) {
       if (code === 0) return 'weatherClear';
       if (code === 1) return 'weatherMostlyClear';
@@ -690,12 +832,32 @@ window.__ModuleLoader__.load({
 
     function weatherIntensity(currentWeather) {
       if (!currentWeather) return 0;
-      const kind = weatherKind(currentWeather.code);
+      const kind = effectiveWeatherKind(currentWeather);
       if (kind === 'storm') return 1;
-      const currentAmount = Math.max(0, Number(currentWeather.precip) || 0);
-      const nextAmount = Number.isFinite(Number(currentWeather.nextPrecip))
-        ? Math.max(0, Number(currentWeather.nextPrecip))
-        : currentAmount;
+      const currentAmount =
+        kind === 'snow'
+          ? Math.max(0, Number(currentWeather.snowfall) || 0)
+          : Math.max(
+              0,
+              (Number(currentWeather.rain) || 0) +
+                (Number(currentWeather.showers) || 0) ||
+                Number(currentWeather.precip) ||
+                0,
+            );
+      const nextAmount =
+        kind === 'snow'
+          ? Math.max(
+              0,
+              Number.isFinite(Number(currentWeather.nextSnow))
+                ? Number(currentWeather.nextSnow)
+                : Number(currentWeather.snowfall) || 0,
+            )
+          : Math.max(
+              0,
+              Number.isFinite(Number(currentWeather.nextRain))
+                ? Number(currentWeather.nextRain)
+                : Number(currentWeather.nextPrecip) || currentAmount,
+            );
       const amount = Math.max(0, currentAmount + (nextAmount - currentAmount) * 0.45);
       if (kind === 'snow') return Math.min(1, 0.35 + amount * 0.35);
       return Math.min(1, Math.max(0.18, 0.18 + amount / 5));
@@ -703,7 +865,7 @@ window.__ModuleLoader__.load({
 
     function weatherStarDim(currentWeather) {
       if (!currentWeather) return 1;
-      const kind = weatherKind(currentWeather.code);
+      const kind = effectiveWeatherKind(currentWeather);
       let dim = 1 - Math.min(1, Math.max(0, currentWeather.cloud / 100)) * 0.55;
       if (kind === 'fog') dim *= 0.35;
       else if (kind === 'rain') dim *= 0.7;
@@ -714,7 +876,7 @@ window.__ModuleLoader__.load({
 
     function weatherBodyDim(currentWeather) {
       if (!currentWeather) return 1;
-      const kind = weatherKind(currentWeather.code);
+      const kind = effectiveWeatherKind(currentWeather);
       let dim = 1 - Math.min(1, Math.max(0, currentWeather.cloud / 100)) * 0.5;
       if (kind === 'fog') dim *= 0.5;
       else if (kind === 'rain' || kind === 'snow') dim *= 0.75;
@@ -724,7 +886,10 @@ window.__ModuleLoader__.load({
 
     function weatherWindX(currentWeather) {
       if (!currentWeather) return 0;
-      const speed = Number(currentWeather.windSpeed);
+      const speed = Math.max(
+        Number(currentWeather.windSpeed) || 0,
+        (Number(currentWeather.gust) || 0) * 0.6,
+      );
       const direction = Number(currentWeather.windDir);
       if (!Number.isFinite(speed) || !Number.isFinite(direction)) return 0;
       return Math.cos((direction * Math.PI) / 180) * Math.max(0, speed) * 2.4;
@@ -753,8 +918,8 @@ window.__ModuleLoader__.load({
         encodeURIComponent(location.lat.toFixed(4)) +
         '&longitude=' +
         encodeURIComponent(location.lon.toFixed(4)) +
-        '&current=weather_code,cloud_cover,precipitation,temperature_2m,wind_speed_10m,wind_direction_10m' +
-        '&minutely_15=precipitation' +
+        '&current=weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,visibility,wind_speed_10m,wind_gusts_10m,wind_direction_10m,cape,temperature_2m' +
+        '&minutely_15=precipitation,rain,snowfall,weather_code' +
         '&timezone=auto&forecast_days=1';
       window
         .fetch(WEATHER_ENDPOINT + query, {
@@ -769,20 +934,51 @@ window.__ModuleLoader__.load({
           const code = Number(current && current.weather_code);
           const cloud = Number(current && current.cloud_cover);
           if (!Number.isFinite(code) || !Number.isFinite(cloud)) return;
+          const rain = Math.max(0, Number(current.rain) || 0);
+          const showers = Math.max(0, Number(current.showers) || 0);
+          const snowfall = Math.max(0, Number(current.snowfall) || 0);
           let nextPrecip = Math.max(0, Number(current.precipitation) || 0);
+          let nextRain = rain + showers;
+          let nextSnow = snowfall;
+          let nextCode = Math.round(code);
           const minutely = data && data.minutely_15;
-          if (minutely && Array.isArray(minutely.time) && Array.isArray(minutely.precipitation)) {
+          if (minutely && Array.isArray(minutely.time)) {
             const nextIndex = minutely.time.findIndex(
               (time) => typeof time === 'string' && time > String(current.time || ''),
             );
             if (nextIndex !== -1) {
-              nextPrecip = Math.max(0, Number(minutely.precipitation[nextIndex]) || 0);
+              if (Array.isArray(minutely.precipitation)) {
+                nextPrecip = Math.max(0, Number(minutely.precipitation[nextIndex]) || 0);
+              }
+              if (Array.isArray(minutely.rain)) {
+                nextRain = Math.max(0, Number(minutely.rain[nextIndex]) || 0);
+              }
+              if (Array.isArray(minutely.snowfall)) {
+                nextSnow = Math.max(0, Number(minutely.snowfall[nextIndex]) || 0);
+              }
+              if (Array.isArray(minutely.weather_code)) {
+                const value = Number(minutely.weather_code[nextIndex]);
+                if (Number.isFinite(value)) nextCode = Math.round(value);
+              }
             }
           }
           weather = {
             code: Math.round(code),
             cloud: Math.min(100, Math.max(0, cloud)),
             precip: Math.max(0, Number(current.precipitation) || 0),
+            rain: Math.min(100, rain),
+            showers: Math.min(100, showers),
+            snowfall: Math.max(0, snowfall),
+            probability: Number.isFinite(Number(current.precipitation_probability))
+              ? Math.min(100, Math.max(0, Number(current.precipitation_probability)))
+              : null,
+            visibility: Number.isFinite(Number(current.visibility))
+              ? Math.max(0, Number(current.visibility))
+              : null,
+            gust: Number.isFinite(Number(current.wind_gusts_10m))
+              ? Math.max(0, Number(current.wind_gusts_10m))
+              : 0,
+            cape: Number.isFinite(Number(current.cape)) ? Math.max(0, Number(current.cape)) : 0,
             temp: Number.isFinite(Number(current.temperature_2m))
               ? Number(current.temperature_2m)
               : null,
@@ -793,6 +989,9 @@ window.__ModuleLoader__.load({
               ? Number(current.wind_direction_10m)
               : 0,
             nextPrecip,
+            nextRain,
+            nextSnow,
+            nextCode,
             lat: location.lat,
             lon: location.lon,
             ts: Date.now(),
@@ -817,6 +1016,7 @@ window.__ModuleLoader__.load({
 
     let geoController = null;
     function refreshGeo() {
+      if (preciseEnabled && preciseGeo) return null;
       const now = Date.now();
       if (skyGeo && skyGeo.tz && now - skyGeo.ts < GEO_TTL_MS) return null;
       if (typeof window.fetch !== 'function') return null;
@@ -874,12 +1074,42 @@ window.__ModuleLoader__.load({
     }
 
     function resolveSkyLocation(geo) {
+      if (preciseEnabled && preciseGeo) {
+        return { lat: preciseGeo.lat, lon: preciseGeo.lon };
+      }
       const fallback = TZ_FALLBACKS[DEVICE_ZONE] || null;
       if (!geo) return fallback;
       if (geo.tz && geo.tz === DEVICE_ZONE) return { lat: geo.lat, lon: geo.lon };
       if (fallback) return fallback;
       if (!geo.tz) return { lat: geo.lat, lon: geo.lon };
       return null;
+    }
+
+    function setPreciseEnabled(next) {
+      if (preciseEnabled === next) return;
+      preciseEnabled = next;
+      try {
+        window.localStorage.setItem(PRECISE_ENABLED_KEY, next ? '1' : '0');
+      } catch {
+        /* Private mode: the session preference still applies. */
+      }
+      if (!next) {
+        preciseRequest += 1;
+        preciseStatus = 'off';
+        refreshGeo();
+        refreshWeather(resolveSkyLocation(skyGeo));
+        requestStaticRedraw();
+        emit();
+        return;
+      }
+      if (preciseGeo && Date.now() - preciseGeo.ts < PRECISE_TTL_MS) {
+        preciseStatus = 'on';
+        refreshWeather(resolveSkyLocation(skyGeo));
+        requestStaticRedraw();
+        emit();
+        return;
+      }
+      requestPreciseLocation();
     }
 
     function setAccentEnabled(next) {
@@ -1040,6 +1270,17 @@ window.__ModuleLoader__.load({
         };
       }, []);
       return accentEnabled;
+    }
+
+    function usePreciseLocation() {
+      const [, force] = useReducer((version) => version + 1, 0);
+      useEffect(() => {
+        listeners.add(force);
+        return () => {
+          listeners.delete(force);
+        };
+      }, []);
+      return { enabled: preciseEnabled, status: preciseStatus };
     }
 
     function useSkyWeather() {
@@ -1877,10 +2118,16 @@ window.__ModuleLoader__.load({
             : 0.25;
           const wetAhead =
             !!weather &&
-            Number(weather.nextPrecip) >
-              Math.max(0, Number(weather.precip) || 0) + 0.03;
+            (Number(weather.nextRain) || Number(weather.nextSnow) || 0) >
+              Math.max(
+                0,
+                (Number(weather.rain) || 0) +
+                  (Number(weather.showers) || 0) +
+                  (Number(weather.snowfall) || 0),
+              ) +
+                0.03;
           const cover = wetAhead ? Math.max(rawCover, 0.65) : rawCover;
-          const kind = weather ? weatherKind(weather.code) : 'unknown';
+          const kind = weather ? effectiveWeatherKind(weather) : 'unknown';
           const alphaScale =
             kind === 'unknown'
               ? 0.75
@@ -2061,7 +2308,7 @@ window.__ModuleLoader__.load({
 
         function drawWeather(now, dt, currentWeather, light, opacity, advance) {
           if (!currentWeather || opacity <= 0.01) return;
-          const kind = weatherKind(currentWeather.code);
+          const kind = effectiveWeatherKind(currentWeather);
 
           if (kind === 'fog') {
             const tint = light ? '125,138,155' : '190,208,228';
@@ -2696,6 +2943,7 @@ window.__ModuleLoader__.load({
       const skyOn = useSkyEnabled();
       const weatherOn = useWeatherEnabled();
       const currentWeather = useSkyWeather();
+      const precise = usePreciseLocation();
       const accentOn = useAccentEnabled();
       const themeOn = themeApi.useEnabled();
       const preview = useSkyPreview();
@@ -2766,7 +3014,7 @@ window.__ModuleLoader__.load({
         moon.illumination +
         '%' +
         (moonWindowParts.length ? ' · ' + moonWindowParts.join(' · ') : '');
-      const weatherKindNow = currentWeather ? weatherKind(currentWeather.code) : null;
+      const weatherKindNow = currentWeather ? effectiveWeatherKind(currentWeather) : null;
       const weatherLabel = h(
         React.Fragment,
         null,
@@ -2985,6 +3233,14 @@ window.__ModuleLoader__.load({
               'weatherActionOn',
               'weatherActionOff',
             ),
+            option(
+              'precise',
+              t('preciseLabel'),
+              precise.enabled,
+              () => setPreciseEnabled(!preciseEnabled),
+              'preciseActionOn',
+              'preciseActionOff',
+            ),
             option('theme', t('themeLabel'), themeOn, () => themeApi.setEnabled(!themeOn), 'themeActionOn', 'themeActionOff'),
             option(
               'accent',
@@ -3062,6 +3318,18 @@ window.__ModuleLoader__.load({
           applySkyAccent();
           const timer = window.setInterval(applySkyAccent, 60000);
           return () => window.clearInterval(timer);
+        });
+
+        ctx.effect(() => {
+          if (
+            preciseEnabled &&
+            (!preciseGeo || Date.now() - preciseGeo.ts >= PRECISE_TTL_MS)
+          ) {
+            requestPreciseLocation();
+          }
+          return () => {
+            preciseRequest += 1;
+          };
         });
 
         if (themeFace) {
