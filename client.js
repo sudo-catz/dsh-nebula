@@ -967,12 +967,14 @@ window.__ModuleLoader__.load({
       const stamp = ((minute % 1440) + 1440) % 1440;
       const left = 0.14;
       const right = 0.86;
+      // East is the right edge in this view; both sun and moon travel from
+      // right (east) to left (west).
       if (stamp >= sunrise && stamp < sunset) {
         const t = (stamp - sunrise) / Math.max(1, sunset - sunrise);
         return {
           kind: 'sun',
           t,
-          x: left + (right - left) * t,
+          x: right - (right - left) * t,
           y: 0.34 - 0.2 * Math.sin(Math.PI * t),
           phase: moon.value,
           illumination: moon.illumination,
@@ -984,7 +986,7 @@ window.__ModuleLoader__.load({
       return {
         kind: 'moon',
         t,
-        x: left + (right - left) * t,
+        x: right - (right - left) * t,
         y: 0.34 - 0.18 * Math.sin(Math.PI * t),
         phase: moon.value,
         illumination: moon.illumination,
