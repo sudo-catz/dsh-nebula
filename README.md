@@ -11,7 +11,7 @@
 ## Features
 
 - **Ambience** — a pointer-aware aurora and starfield across the whole frame, with drifting haze, soft clouds, and a faint Milky Way. On by default. Live weather adds cloud cover, drizzle, rain, snow, fog, or a storm flash.
-- **Sky** — follows your local clock from dawn to night. A full-frame phase wash, horizon haze, a sun by day, and a phase-accurate moon at night carry the hour across the page, while the Settings strip shows sunrise, sunset, and the moon phase. Drag the strip to preview any hour; **Live** returns to the clock.
+- **Sky** — follows your local clock from dawn to night. A full-frame phase wash, horizon haze, a sun by day, and a phase-accurate moon at night carry the hour across the page, while the Settings strip shows sunrise, sunset, and the moon phase. A one-line weather summary and condition glyph sit below the switches. Drag the strip to preview any hour; **Live** returns to the clock.
 - **Theme** — a deep-space palette for the whole app, with a lavender light variant, applied as a token skin.
 - **Station** — five Radio Garden stations: Smooth Jazz 24/7 (default), Fox News Radio, FM Kahoku 78.8 FM, Ashiya Radio, and Listen Moe. Add and remove your own; dropped streams retry automatically.
 
@@ -63,6 +63,7 @@ link:/absolute/path/to/dsh-nebula
 | Preview an hour | Drag the Nebula Sky strip (arrow keys, Home/End) |
 | Return to live | **Live**, beside the sky status |
 | Nebula theme / Ambience / Weather | Nebula Sky switches |
+| Current weather summary | Nebula Sky, below the switches |
 | Play / pause | Composer radio-tower icon or OS media keys |
 | Stations, volume, Add station | Settings → General → Nebula Station |
 
