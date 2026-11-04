@@ -34,6 +34,10 @@ window.__ModuleLoader__.load({
     const WEATHER_ENABLED_KEY = 'dsh.nebula-weather.enabled';
     const WEATHER_TTL_MS = 15 * 60 * 1000;
     const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/forecast';
+    const AURORA_KEY = 'dsh.nebula-aurora.kp';
+    const AURORA_TTL_MS = 30 * 60 * 1000;
+    const AURORA_ENDPOINT = 'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json';
+    const ACCENT_ENABLED_KEY = 'dsh.nebula-accent.enabled';
     const DEVICE_ZONE = (() => {
       try {
         return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -84,6 +88,9 @@ window.__ModuleLoader__.load({
       weatherOff: 'Weather off',
       weatherPending: 'Weather —',
       weatherCloud: 'cloud',
+      accentLabel: 'Sky accent',
+      accentActionOn: 'Stop tinting accents with the sky',
+      accentActionOff: 'Tint accents with the sky',
       ambienceOffStatus: 'Ambience off',
       skyHintAmbienceOff: 'Ambience is off. Turn it on above to see the sky.',
       skyTitle: 'Nebula Sky',
@@ -97,6 +104,11 @@ window.__ModuleLoader__.load({
       moonWaningGibbous: 'Waning gibbous',
       moonLastQuarter: 'Last quarter',
       moonWaningCrescent: 'Waning crescent',
+      moonRises: 'Rises',
+      moonSets: 'Sets',
+      moonUpAtMidnight: 'Up at midnight',
+      moonUpAllDay: 'Up all day',
+      moonBelow: 'Below horizon',
       skyHint: 'Drag the strip to preview any hour. Live returns to the clock.',
       skyHintPreview: 'Previewing {phase} at {time}. Live returns to the clock.',
       skyHintFixed: 'Fixed palette. Turn Follow the clock on above to follow the day.',
@@ -474,6 +486,8 @@ window.__ModuleLoader__.load({
     let skyGeo = readGeo();
     let weather = readWeather();
     let weatherEnabled = readWeatherEnabled();
+    let auroraKp = readAuroraKp();
+    let accentEnabled = readAccentEnabled();
 
     // null follows the clock; a number pins the sky to that minute for preview.
     let skyPreview = null;
@@ -526,6 +540,7 @@ window.__ModuleLoader__.load({
             temp: Number.isFinite(Number(parsed.temp)) ? Number(parsed.temp) : null,
             windSpeed: Number.isFinite(Number(parsed.windSpeed)) ? Number(parsed.windSpeed) : 0,
             windDir: Number.isFinite(Number(parsed.windDir)) ? Number(parsed.windDir) : 0,
+            nextPrecip: Number.isFinite(Number(parsed.nextPrecip)) ? Number(parsed.nextPrecip) : 0,
             lat: Number(parsed.lat),
             lon: Number(parsed.lon),
             ts: Number(parsed.ts) || 0,
@@ -544,6 +559,86 @@ window.__ModuleLoader__.load({
       } catch {
         return true;
       }
+    }
+
+    function readAccentEnabled() {
+      try {
+        const raw = window.localStorage.getItem(ACCENT_ENABLED_KEY);
+        return raw === null ? true : raw !== '0';
+      } catch {
+        return true;
+      }
+    }
+
+    function accentForMinute(minute) {
+      const stamp = ((minute % 1440) + 1440) % 1440;
+      if (stamp < 300) return '#a8baff';
+      if (stamp < 420) return '#f2b56b';
+      if (stamp < 690) return '#8fd3ff';
+      if (stamp < 930) return '#a6dcff';
+      if (stamp < 1050) return '#f0c06a';
+      if (stamp < 1140) return '#f49a7f';
+      if (stamp < 1230) return '#c9a6ff';
+      return '#a8baff';
+    }
+
+    function applySkyAccent() {
+      const minute = skyPreview === null ? minuteOfDay() : skyPreview;
+      themeApi.setAccent(accentEnabled ? accentForMinute(minute) : null);
+    }
+
+    function readAuroraKp() {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(AURORA_KEY) || 'null');
+        if (parsed && Number.isFinite(parsed.kp) && parsed.kp >= 0 && parsed.kp <= 9) {
+          return { kp: parsed.kp, ts: Number(parsed.ts) || 0 };
+        }
+      } catch {
+        /* No cached Kp. */
+      }
+      return null;
+    }
+
+    let auroraController = null;
+    function refreshAurora() {
+      const now = Date.now();
+      if (auroraKp && now - auroraKp.ts < AURORA_TTL_MS) return null;
+      if (typeof window.fetch !== 'function') return null;
+      if (auroraController) auroraController.abort();
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      auroraController = controller;
+      const timer = window.setTimeout(() => {
+        if (controller) controller.abort();
+      }, 8000);
+      window
+        .fetch(AURORA_ENDPOINT, {
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: controller ? controller.signal : undefined,
+        })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          if (auroraController !== controller || !Array.isArray(data) || !data.length) return;
+          const latest = data[data.length - 1];
+          const kp = Number(latest && (latest.estimated_kp ?? latest.kp_index));
+          if (!Number.isFinite(kp) || kp < 0 || kp > 9) return;
+          auroraKp = { kp: Math.round(kp * 100) / 100, ts: Date.now() };
+          try {
+            window.localStorage.setItem(AURORA_KEY, JSON.stringify(auroraKp));
+          } catch {
+            /* Private mode: the session value still applies. */
+          }
+          emit();
+          requestStaticRedraw();
+        })
+        .catch(() => {
+          /* Keep the last Kp when the lookup fails. */
+        })
+        .finally(() => {
+          window.clearTimeout(timer);
+          if (auroraController === controller) auroraController = null;
+        });
+      return controller;
     }
 
     function weatherKind(code) {
@@ -597,7 +692,11 @@ window.__ModuleLoader__.load({
       if (!currentWeather) return 0;
       const kind = weatherKind(currentWeather.code);
       if (kind === 'storm') return 1;
-      const amount = Math.max(0, Number(currentWeather.precip) || 0);
+      const currentAmount = Math.max(0, Number(currentWeather.precip) || 0);
+      const nextAmount = Number.isFinite(Number(currentWeather.nextPrecip))
+        ? Math.max(0, Number(currentWeather.nextPrecip))
+        : currentAmount;
+      const amount = Math.max(0, currentAmount + (nextAmount - currentAmount) * 0.45);
       if (kind === 'snow') return Math.min(1, 0.35 + amount * 0.35);
       return Math.min(1, Math.max(0.18, 0.18 + amount / 5));
     }
@@ -655,6 +754,7 @@ window.__ModuleLoader__.load({
         '&longitude=' +
         encodeURIComponent(location.lon.toFixed(4)) +
         '&current=weather_code,cloud_cover,precipitation,temperature_2m,wind_speed_10m,wind_direction_10m' +
+        '&minutely_15=precipitation' +
         '&timezone=auto&forecast_days=1';
       window
         .fetch(WEATHER_ENDPOINT + query, {
@@ -669,6 +769,16 @@ window.__ModuleLoader__.load({
           const code = Number(current && current.weather_code);
           const cloud = Number(current && current.cloud_cover);
           if (!Number.isFinite(code) || !Number.isFinite(cloud)) return;
+          let nextPrecip = Math.max(0, Number(current.precipitation) || 0);
+          const minutely = data && data.minutely_15;
+          if (minutely && Array.isArray(minutely.time) && Array.isArray(minutely.precipitation)) {
+            const nextIndex = minutely.time.findIndex(
+              (time) => typeof time === 'string' && time > String(current.time || ''),
+            );
+            if (nextIndex !== -1) {
+              nextPrecip = Math.max(0, Number(minutely.precipitation[nextIndex]) || 0);
+            }
+          }
           weather = {
             code: Math.round(code),
             cloud: Math.min(100, Math.max(0, cloud)),
@@ -682,6 +792,7 @@ window.__ModuleLoader__.load({
             windDir: Number.isFinite(Number(current.wind_direction_10m))
               ? Number(current.wind_direction_10m)
               : 0,
+            nextPrecip,
             lat: location.lat,
             lon: location.lon,
             ts: Date.now(),
@@ -771,6 +882,18 @@ window.__ModuleLoader__.load({
       return null;
     }
 
+    function setAccentEnabled(next) {
+      if (accentEnabled === next) return;
+      accentEnabled = next;
+      try {
+        window.localStorage.setItem(ACCENT_ENABLED_KEY, next ? '1' : '0');
+      } catch {
+        /* Private mode: the session preference still applies. */
+      }
+      applySkyAccent();
+      emit();
+    }
+
     function setWeatherEnabled(next) {
       if (weatherEnabled === next) return;
       weatherEnabled = next;
@@ -848,6 +971,7 @@ window.__ModuleLoader__.load({
       const value = next === null ? null : Math.min(1439, Math.max(0, Math.round(next)));
       if (skyPreview === value) return;
       skyPreview = value;
+      applySkyAccent();
       emit();
       requestStaticRedraw();
     }
@@ -905,6 +1029,17 @@ window.__ModuleLoader__.load({
         };
       }, []);
       return weatherEnabled;
+    }
+
+    function useAccentEnabled() {
+      const [, force] = useReducer((version) => version + 1, 0);
+      useEffect(() => {
+        listeners.add(force);
+        return () => {
+          listeners.delete(force);
+        };
+      }, []);
+      return accentEnabled;
     }
 
     function useSkyWeather() {
@@ -1184,8 +1319,10 @@ window.__ModuleLoader__.load({
         radius *
         (sin(node * RAD) * cos(argument * RAD) +
           cos(node * RAD) * sin(argument * RAD) * cos(inclination * RAD));
+      const moonZ = radius * sin(argument * RAD) * sin(inclination * RAD);
 
       let moonLon = Math.atan2(moonY, moonX) / RAD;
+      let moonLat = Math.atan2(moonZ, Math.hypot(moonX, moonY)) / RAD;
       const meanLon = norm(node + periapsis + moonM);
       const elongation = norm(meanLon - sunLon);
       const latitudeArgument = norm(meanLon - node);
@@ -1204,6 +1341,13 @@ window.__ModuleLoader__.load({
         0.015 * sin((2 * latitudeArgument - 2 * elongation) * RAD) +
         0.011 * sin((moonM - 4 * elongation) * RAD);
 
+      moonLat +=
+        -0.173 * sin((latitudeArgument - 2 * elongation) * RAD) -
+        0.055 * sin((moonM - latitudeArgument - 2 * elongation) * RAD) -
+        0.046 * sin((moonM + latitudeArgument - 2 * elongation) * RAD) +
+        0.033 * sin((latitudeArgument + 2 * elongation) * RAD) +
+        0.017 * sin((2 * moonM + latitudeArgument) * RAD);
+
       const delta = norm(moonLon - sunLon);
       const phase = delta / 360;
       const illumination = Math.round(((1 - cos(delta * RAD)) / 2) * 100);
@@ -1216,7 +1360,104 @@ window.__ModuleLoader__.load({
       else if (phase < 0.72) key = 'moonWaningGibbous';
       else if (phase < 0.78) key = 'moonLastQuarter';
       else key = 'moonWaningCrescent';
-      return { key, illumination, value: phase };
+      return { key, illumination, value: phase, lon: moonLon, lat: moonLat, distance: radius };
+    }
+
+    const MOON_HORIZON_DEG = 0.133;
+
+    function moonEquatorial(date) {
+      const RAD = Math.PI / 180;
+      const phase = moonPhase(date);
+      const days = (date.getTime() - Date.UTC(2000, 0, 1, 12)) / 86400000;
+      const eps = (23.4393 - 3.563e-7 * days) * RAD;
+      const lon = phase.lon * RAD;
+      const lat = phase.lat * RAD;
+      return {
+        ra:
+          Math.atan2(
+            Math.sin(lon) * Math.cos(eps) - Math.tan(lat) * Math.sin(eps),
+            Math.cos(lon),
+          ) / RAD,
+        dec:
+          Math.asin(Math.sin(lat) * Math.cos(eps) + Math.cos(lat) * Math.sin(eps) * Math.sin(lon)) /
+          RAD,
+        distance: phase.distance,
+      };
+    }
+
+    function moonAltitudeAt(location, date) {
+      if (!location) return null;
+      const RAD = Math.PI / 180;
+      const days = (date.getTime() - Date.UTC(2000, 0, 1, 12)) / 86400000;
+      const centuries = days / 36525;
+      let gmst =
+        280.46061837 +
+        360.98564736629 * days +
+        0.000387933 * centuries * centuries -
+        (centuries * centuries * centuries) / 38710000;
+      gmst = ((gmst % 360) + 360) % 360;
+      const eq = moonEquatorial(date);
+      const hourAngle = ((gmst + location.lon) * RAD - eq.ra * RAD + Math.PI) % TAU - Math.PI;
+      const phi = location.lat * RAD;
+      const dec = eq.dec * RAD;
+      const altitude =
+        Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(hourAngle)) /
+        RAD;
+      const azimuth =
+        Math.atan2(
+          -Math.sin(hourAngle) * Math.cos(dec),
+          Math.sin(dec) * Math.cos(phi) - Math.cos(dec) * Math.sin(phi) * Math.cos(hourAngle),
+        ) / RAD;
+      return {
+        altitude,
+        azimuth: ((azimuth % 360) + 360) % 360,
+      };
+    }
+
+    let moonAltMemoKey = '';
+    let moonAltMemo = null;
+    function moonAltitude(location, date) {
+      if (!location) return null;
+      const key =
+        Math.floor(date.getTime() / 60000) + '|' + location.lat + ',' + location.lon;
+      if (key !== moonAltMemoKey) {
+        moonAltMemoKey = key;
+        moonAltMemo = moonAltitudeAt(location, date);
+      }
+      return moonAltMemo;
+    }
+
+    let moonTimesMemoKey = '';
+    let moonTimesMemo = null;
+    function moonTimes(location, date = new Date()) {
+      if (!location) return null;
+      const key = date.toDateString() + '|' + location.lat + ',' + location.lon;
+      if (key === moonTimesMemoKey) return moonTimesMemo;
+      const base = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      let previous = moonAltitudeAt(location, base);
+      let rise = null;
+      let set = null;
+      const upAtStart = !!(previous && previous.altitude > MOON_HORIZON_DEG);
+      let up = upAtStart;
+      if (previous) {
+        for (let minute = 15; minute <= 1440; minute += 15) {
+          const sample = moonAltitudeAt(location, new Date(base.getTime() + minute * 60000));
+          if (!sample) continue;
+          const above = sample.altitude > MOON_HORIZON_DEG;
+          if (above !== up) {
+            const span = sample.altitude - previous.altitude || 1;
+            const crossing =
+              minute - 15 + 15 * ((MOON_HORIZON_DEG - previous.altitude) / span);
+            if (above) rise = crossing;
+            else set = crossing;
+            up = above;
+          }
+          previous = sample;
+        }
+      }
+      moonTimesMemoKey = key;
+      moonTimesMemo = { rise, set, upAtStart, up };
+      return moonTimesMemo;
     }
 
     function pad2(value) {
@@ -1312,6 +1553,24 @@ window.__ModuleLoader__.load({
     // Where the sun or moon would be for this local minute. Sunrise and sunset
     // come from the same solar math as the Settings markers; without a
     // location, a plain 06:00/18:00 day still gives the background a motion.
+    function moonBodyAt(date, location, moon, southern) {
+      if (!location) return null;
+      const position = moonAltitude(location, date);
+      if (!position || position.altitude <= MOON_HORIZON_DEG) return null;
+      const RAD = Math.PI / 180;
+      const altitude = Math.min(90, Math.max(0, position.altitude));
+      return {
+        kind: 'moon',
+        t: Math.min(1, altitude / 45),
+        altitude,
+        x: 0.5 + Math.sin(position.azimuth * RAD) * 0.36,
+        y: HORIZON - (altitude / 90) * 0.2,
+        southern,
+        phase: moon.value,
+        illumination: moon.illumination,
+      };
+    }
+
     function celestialAt(minute, location) {
       const date = new Date();
       const moon = moonFor(date);
@@ -1329,15 +1588,7 @@ window.__ModuleLoader__.load({
         };
       }
       if (solar && solar.kind === 'polarNight') {
-        return {
-          kind: 'moon',
-          t: 0.5,
-          x: 0.5,
-          y: 0.16,
-          southern,
-          phase: moon.value,
-          illumination: moon.illumination,
-        };
+        return moonBodyAt(date, location, moon, southern);
       }
       const sunrise = solar && solar.kind === 'normal' ? solar.sunrise : 360;
       const sunset = solar && solar.kind === 'normal' ? solar.sunset : 1080;
@@ -1358,18 +1609,7 @@ window.__ModuleLoader__.load({
           illumination: moon.illumination,
         };
       }
-      const night = Math.max(1, 1440 - sunset + sunrise);
-      const elapsed = stamp >= sunset ? stamp - sunset : 1440 - sunset + stamp;
-      const t = Math.min(1, Math.max(0, elapsed / night));
-      return {
-        kind: 'moon',
-        t,
-        x: right - (right - left) * t,
-        y: HORIZON - 0.18 * Math.sin(Math.PI * t),
-        southern,
-        phase: moon.value,
-        illumination: moon.illumination,
-      };
+      return moonBodyAt(date, location, moon, southern);
     }
 
     function currentCelestial() {
@@ -1382,11 +1622,20 @@ window.__ModuleLoader__.load({
     function skyButtonBackground(sky, body) {
       if (!sky) return 'none';
       const [a, b, c] = sky.colors;
-      const isSun = body && body.kind === 'sun';
-      const x = body ? Math.round(10 + body.x * 80) : 50;
-      const y = body ? Math.round(20 + body.y * 58) : 34;
+      const linear =
+        'linear-gradient(145deg, rgba(' +
+        a +
+        ',0.36), rgba(' +
+        b +
+        ',0.15) 54%, rgba(' +
+        c +
+        ',0.3))';
+      if (!body) return linear;
+      const isSun = body.kind === 'sun';
+      const x = Math.round(10 + body.x * 80);
+      const y = Math.round(20 + body.y * 58);
       const color = isSun ? '255,226,170' : '205,222,255';
-      const glow = isSun ? 0.55 : 0.45 + 0.45 * (body ? body.illumination / 100 : 0);
+      const glow = isSun ? 0.55 : 0.45 + 0.45 * (body.illumination / 100);
       return (
         'radial-gradient(circle at ' +
         x +
@@ -1403,13 +1652,7 @@ window.__ModuleLoader__.load({
         ') 18%, rgba(' +
         color +
         ',0) 44%),' +
-        'linear-gradient(145deg, rgba(' +
-        a +
-        ',0.36), rgba(' +
-        b +
-        ',0.15) 54%, rgba(' +
-        c +
-        ',0.3))'
+        linear
       );
     }
 
@@ -1629,12 +1872,23 @@ window.__ModuleLoader__.load({
         function drawClouds(now, px, py, sky, light, weather) {
           if (!sky || !clouds.length) return;
           const tint = light ? shadeColor(sky.colors[0], 0.45) : sky.colors[0];
-          const cover = weather
+          const rawCover = weather
             ? Math.min(1, Math.max(0, weather.cloud / 100))
             : 0.25;
+          const wetAhead =
+            !!weather &&
+            Number(weather.nextPrecip) >
+              Math.max(0, Number(weather.precip) || 0) + 0.03;
+          const cover = wetAhead ? Math.max(rawCover, 0.65) : rawCover;
           const kind = weather ? weatherKind(weather.code) : 'unknown';
           const alphaScale =
-            kind === 'unknown' ? 0.75 : kind === 'clear' ? 0.25 : 0.55 + cover * 0.9;
+            kind === 'unknown'
+              ? 0.75
+              : kind === 'clear'
+                ? wetAhead
+                  ? 0.55
+                  : 0.25
+                : 0.55 + cover * 0.9;
           const activeClouds = weather
             ? Math.min(
                 clouds.length,
@@ -1715,7 +1969,10 @@ window.__ModuleLoader__.load({
           const cx = Math.max(18, Math.min(w - 18, body.x * w));
           const cy = Math.max(22, Math.min(h - 22, body.y * h));
           const lit = Math.max(0, Math.min(1, body.illumination / 100));
-          const horizonFade = 0.45 + 0.55 * Math.sin(Math.PI * body.t);
+          const horizonFade =
+            body.altitude !== undefined
+              ? 0.45 + 0.55 * Math.min(1, Math.max(0, body.altitude / 12))
+              : 0.45 + 0.55 * Math.sin(Math.PI * body.t);
           const alpha = (isSun ? 0.42 : 0.55 + 0.45 * lit) * horizonFade * dim;
           const color = isSun
             ? light
@@ -1941,6 +2198,9 @@ window.__ModuleLoader__.load({
           if (dt > 0) weatherMix = Math.min(1, weatherMix + dt / 900);
           else weatherMix = 1;
           const currentWeather = shownWeather;
+          const auroraFactor = auroraKp
+            ? 0.85 + (Math.min(9, Math.max(0, auroraKp.kp)) / 9) * 0.5
+            : 1;
           const starDim =
             previousWeather && weatherMix < 1
               ? mixNumber(weatherStarDim(previousWeather), weatherStarDim(currentWeather), weatherMix)
@@ -1965,7 +2225,7 @@ window.__ModuleLoader__.load({
                   c: light ? shadeColor(skyColor, 0.45) : skyColor,
                   a: light
                     ? DARK.blobs[index].a * lightScale
-                    : blob.a * (0.35 + 0.65 * sky.scale) * 1.9,
+                    : blob.a * (0.35 + 0.65 * sky.scale) * 1.9 * auroraFactor,
                 };
               }),
             };
@@ -2436,6 +2696,7 @@ window.__ModuleLoader__.load({
       const skyOn = useSkyEnabled();
       const weatherOn = useWeatherEnabled();
       const currentWeather = useSkyWeather();
+      const accentOn = useAccentEnabled();
       const themeOn = themeApi.useEnabled();
       const preview = useSkyPreview();
       const geo = useSkyGeo();
@@ -2483,7 +2744,28 @@ window.__ModuleLoader__.load({
         .replace('{time}', clockTime(shownMinute));
       const marker = Math.min(99.4, Math.max(0.6, (shownMinute / 1440) * 100));
       const moon = moonPhase();
-      const moonLabel = t(moon.key) + ' ' + moon.illumination + '%';
+      const moonWindow = location ? moonTimes(location) : null;
+      const moonWindowParts = [];
+      if (moonWindow) {
+        if (moonWindow.rise != null) {
+          moonWindowParts.push(t('moonRises') + ' ' + clockTime(moonWindow.rise));
+        }
+        if (moonWindow.set != null) {
+          moonWindowParts.push(t('moonSets') + ' ' + clockTime(moonWindow.set));
+        }
+        if (moonWindow.rise == null && moonWindow.upAtStart) {
+          moonWindowParts.push(t('moonUpAtMidnight'));
+        }
+        if (moonWindowParts.length === 0) {
+          moonWindowParts.push(t(moonWindow.up ? 'moonUpAllDay' : 'moonBelow'));
+        }
+      }
+      const moonLabel =
+        t(moon.key) +
+        ' ' +
+        moon.illumination +
+        '%' +
+        (moonWindowParts.length ? ' · ' + moonWindowParts.join(' · ') : '');
       const weatherKindNow = currentWeather ? weatherKind(currentWeather.code) : null;
       const weatherLabel = h(
         React.Fragment,
@@ -2705,6 +2987,14 @@ window.__ModuleLoader__.load({
             ),
             option('theme', t('themeLabel'), themeOn, () => themeApi.setEnabled(!themeOn), 'themeActionOn', 'themeActionOff'),
             option(
+              'accent',
+              t('accentLabel'),
+              accentOn,
+              () => setAccentEnabled(!accentEnabled),
+              'accentActionOn',
+              'accentActionOff',
+            ),
+            option(
               'ambience',
               t('ambienceLabel'),
               ambienceOn,
@@ -2757,6 +3047,21 @@ window.__ModuleLoader__.load({
             window.clearInterval(timer);
             if (weatherController) weatherController.abort();
           };
+        });
+
+        ctx.effect(() => {
+          refreshAurora();
+          const timer = window.setInterval(refreshAurora, AURORA_TTL_MS);
+          return () => {
+            window.clearInterval(timer);
+            if (auroraController) auroraController.abort();
+          };
+        });
+
+        ctx.effect(() => {
+          applySkyAccent();
+          const timer = window.setInterval(applySkyAccent, 60000);
+          return () => window.clearInterval(timer);
         });
 
         if (themeFace) {
@@ -2955,7 +3260,40 @@ window.__ModuleLoader__.load({
     let runtime = null;
     let themeFace = null;
     let override = null;
+    let accentColor = null;
     const listeners = new Set();
+
+    function shadeHex(hex, factor) {
+      const match = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+      if (!match) return hex;
+      const value = parseInt(match[1], 16);
+      const channel = (shift) =>
+        Math.max(0, Math.min(255, Math.round(((value >> shift) & 255) * factor)));
+      return (
+        '#' +
+        [16, 8, 0]
+          .map((shift) => channel(shift).toString(16).padStart(2, '0'))
+          .join('')
+      );
+    }
+
+    function accentTokens() {
+      if (!accentColor) return TOKENS;
+      const lightAccent = shadeHex(accentColor, 0.62);
+      const lightHover = shadeHex(accentColor, 0.52);
+      const darkHover = shadeHex(accentColor, 0.86);
+      return {
+        ...TOKENS,
+        '--dsw-alias-brand-primary': { dark: accentColor, light: lightAccent },
+        '--dsw-alias-link': { dark: accentColor, light: lightAccent },
+        '--dsw-focus-ring-color': { dark: accentColor, light: lightAccent },
+        '--dsw-alias-button-primary-fill': { dark: accentColor, light: lightAccent },
+        '--dsw-alias-button-primary-hover': { dark: darkHover, light: lightHover },
+        '--dsw-alias-button-info-fill': { dark: accentColor, light: lightAccent },
+        '--dsw-alias-button-info-hover': { dark: darkHover, light: lightHover },
+        '--dsw-alias-state-business-primary': { dark: accentColor, light: lightAccent },
+      };
+    }
 
     function emit() {
       for (const listener of listeners) listener();
@@ -2982,10 +3320,18 @@ window.__ModuleLoader__.load({
       themeFace = face;
       disposeOverride();
       try {
-        override = face.overrideTokens(SOURCE, TOKENS);
+        override = face.overrideTokens(SOURCE, accentTokens());
       } catch {
         override = null;
       }
+    }
+
+    function setAccent(next) {
+      const value =
+        typeof next === 'string' && /^#[0-9a-f]{6}$/i.test(next) ? next.toLowerCase() : null;
+      if (accentColor === value) return;
+      accentColor = value;
+      if (enabled) applyOverride();
     }
 
     function setEnabled(next) {
@@ -3030,6 +3376,7 @@ window.__ModuleLoader__.load({
       },
       useEnabled,
       setEnabled,
+      setAccent,
     };
     }
 

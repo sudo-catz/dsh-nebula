@@ -10,9 +10,9 @@
 
 ## Features
 
-- **Ambience** — a pointer-aware aurora and starfield across the whole frame, with drifting haze, soft clouds, and a faint Milky Way. On by default. Live weather adds cloud cover, drizzle, rain, snow, fog, or a storm flash.
-- **Sky** — follows your local clock from dawn to night. A full-frame phase wash, horizon haze, a sun by day, and a phase-accurate moon at night carry the hour across the page, while the Settings strip shows sunrise, sunset, and the moon phase. A one-line weather summary and condition glyph sit below the switches. Drag the strip to preview any hour; **Live** returns to the clock.
-- **Theme** — a deep-space palette for the whole app, with a lavender light variant, applied as a token skin.
+- **Ambience** — a pointer-aware aurora and starfield across the whole frame, with drifting haze, soft clouds, and a faint Milky Way. On by default. Live weather adds cloud cover, drizzle, rain, snow, fog, or a storm flash, and NOAA's planetary K index lets the aurora breathe with geomagnetic activity.
+- **Sky** — follows your local clock from dawn to night. A full-frame phase wash, horizon haze, a sun by day, and a phase-accurate moon carry the hour across the page. The moon is only drawn when it is actually above the horizon; its tooltip carries today's rise and set. The Settings strip also shows sunrise, sunset, the moon phase, and a one-line weather summary with a condition glyph. Drag the strip to preview any hour; **Live** returns to the clock.
+- **Theme** — a deep-space palette for the whole app, with a lavender light variant, applied as a token skin. **Sky accent** optionally retints only the interactive accent tokens from dawn amber to night lavender, leaving surfaces and text stable.
 - **Station** — five Radio Garden stations: Smooth Jazz 24/7 (default), Fox News Radio, FM Kahoku 78.8 FM, Ashiya Radio, and Listen Moe. Add and remove your own; dropped streams retry automatically.
 
 The composer sparkle is the **Follow the clock** switch, and its background is a tiny live sky for the current hour. **Settings → General → Nebula Sky** also holds the theme and ambience switches. All three default on, with Dark as the default appearance.
@@ -63,6 +63,7 @@ link:/absolute/path/to/dsh-nebula
 | Preview an hour | Drag the Nebula Sky strip (arrow keys, Home/End) |
 | Return to live | **Live**, beside the sky status |
 | Nebula theme / Ambience / Weather | Nebula Sky switches |
+| Sky accent | Nebula Sky switch |
 | Current weather summary | Nebula Sky, below the switches |
 | Play / pause | Composer radio-tower icon or OS media keys |
 | Stations, volume, Add station | Settings → General → Nebula Station |
@@ -70,7 +71,7 @@ link:/absolute/path/to/dsh-nebula
 ## Good to know
 
 - Client-only: no Host work, dependencies, install scripts, or telemetry. Settings live in `localStorage`.
-- The sky reads the device clock, makes one approximate IP lookup (ipwho.is, cached for 24 hours) to place sunrise and sunset, and reads current weather for that approximate location from open-meteo.com (cached for 15 minutes). No location permission prompt. If the IP timezone disagrees with the device timezone, a representative city for the device timezone is used.
+- The sky reads the device clock, makes one approximate IP lookup (ipwho.is, cached for 24 hours) to place sunrise and sunset, and reads current weather plus a 15-minute nowcast for that approximate location from open-meteo.com (cached for 15 minutes). It also reads NOAA's planetary K index (cached for 30 minutes) for aurora intensity. No location permission prompt. If the IP timezone disagrees with the device timezone, a representative city for the device timezone is used.
 - Radio Garden's listen endpoint is unofficial and intended for personal use.
 - The five default stations are fixed; custom stations are yours to remove.
 - Built for DSH Web 0.2.x. MIT © 2026 sudo-catz.
