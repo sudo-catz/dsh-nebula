@@ -795,6 +795,15 @@ window.__ModuleLoader__.load({
       return codeKind;
     }
 
+    function effectiveConditionKey(currentWeather) {
+      if (!currentWeather) return 'weatherPending';
+      const kind = effectiveWeatherKind(currentWeather);
+      if (kind === 'fog') return 'weatherFog';
+      if (kind === 'storm') return 'weatherStorm';
+      if (kind === 'snow') return 'weatherSnow';
+      return weatherConditionKey(currentWeather.code);
+    }
+
     function weatherConditionKey(code) {
       if (code === 0) return 'weatherClear';
       if (code === 1) return 'weatherMostlyClear';
@@ -3022,21 +3031,41 @@ window.__ModuleLoader__.load({
         weatherOn && weatherKindNow ? ' ' : null,
         t('weatherLabel'),
       );
-      const weatherSummary = !weatherOn
-        ? t('weatherOff')
-        : currentWeather
-          ? [
-              t(weatherConditionKey(currentWeather.code)),
-              Number.isFinite(Number(currentWeather.cloud))
-                ? Math.round(currentWeather.cloud) + '% ' + t('weatherCloud')
-                : null,
-              Number.isFinite(Number(currentWeather.temp))
-                ? Math.round(currentWeather.temp) + '°C'
-                : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')
-          : t('weatherPending');
+      const weatherSummary = (() => {
+        if (!weatherOn) return t('weatherOff');
+        if (!currentWeather) return t('weatherPending');
+        const kind = effectiveWeatherKind(currentWeather);
+        const parts = [t(effectiveConditionKey(currentWeather))];
+        const cloud = Number(currentWeather.cloud);
+        const temp = Number(currentWeather.temp);
+        const probability = Number(currentWeather.probability);
+        const visibility = Number(currentWeather.visibility);
+        const gust = Number(currentWeather.gust);
+        const rainAmount =
+          Math.max(0, Number(currentWeather.rain) || 0) +
+          Math.max(0, Number(currentWeather.showers) || 0) ||
+          Math.max(0, Number(currentWeather.precip) || 0);
+        const snowAmount = Math.max(0, Number(currentWeather.snowfall) || 0);
+        if (kind === 'fog') {
+          if (Number.isFinite(visibility) && visibility > 0) {
+            parts.push((visibility / 1000).toFixed(visibility < 10000 ? 1 : 0) + ' km');
+          }
+        } else if (kind === 'rain' || kind === 'storm') {
+          if (rainAmount > 0) parts.push(rainAmount.toFixed(2) + ' mm');
+          if (Number.isFinite(probability)) parts.push(Math.round(probability) + '%');
+        } else if (kind === 'snow') {
+          if (snowAmount > 0) parts.push(snowAmount.toFixed(1) + ' cm');
+          if (Number.isFinite(probability)) parts.push(Math.round(probability) + '%');
+        }
+        if (kind !== 'fog' && Number.isFinite(cloud)) {
+          parts.push(Math.round(cloud) + '% ' + t('weatherCloud'));
+        }
+        if (kind === 'storm' && Number.isFinite(gust) && gust > 0) {
+          parts.push(Math.round(gust) + ' km/h');
+        }
+        if (Number.isFinite(temp)) parts.push(temp.toFixed(1) + '°C');
+        return parts.join(' · ');
+      })();
       const sun = location ? sunTimes(location) : null;
       const sunPercent = (value) => Math.min(99.2, Math.max(0.8, (value / 1440) * 100));
 
