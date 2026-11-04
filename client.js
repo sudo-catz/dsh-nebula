@@ -3746,6 +3746,10 @@ window.__ModuleLoader__.load({
       stateReconnecting: 'Reconnecting…',
       stateError: 'Stream unavailable',
       stateArmed: 'Click to start',
+      statePreviewing: 'Previewing…',
+      previewPlay: 'Preview {station}',
+      previewStop: 'Stop preview',
+      previewError: 'Preview unavailable',
       hint: 'Streams via Radio Garden, with discovery from Radio Browser.',
       addToggle: 'Add station',
       addHint: 'Search by name, or paste a radio.garden/listen/… station URL.',
@@ -4138,6 +4142,59 @@ window.__ModuleLoader__.load({
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.dsh-nr-result-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+}
+.dsh-nr-result-row .dsh-nr-result {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.dsh-nr-result-row.is-previewing .dsh-nr-result {
+  border-color: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-preview {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.dsh-nr-preview:hover {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-nr-preview:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+.dsh-nr-preview.is-active {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-preview.is-error {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+.dsh-nr-preview.is-loading svg {
+  animation: dsh-nr-preview-pulse 900ms ease-in-out infinite;
+}
+@keyframes dsh-nr-preview-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 .dsh-nr-result {
   display: flex;
   align-items: center;
@@ -4404,6 +4461,12 @@ window.__ModuleLoader__.load({
     let armed = false;
     let playbackIntent = readPlaybackIntent();
     let gestureCleanup = null;
+    let previewAudio = null;
+    let previewId = '';
+    let previewName = '';
+    let previewState = 'idle';
+    let previewTimer = 0;
+    let previewResumeMain = false;
 
     const listeners = new Set();
 
@@ -4671,6 +4734,121 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function clearPreviewTimer() {
+      if (previewTimer) {
+        window.clearTimeout(previewTimer);
+        previewTimer = 0;
+      }
+    }
+
+    function ensurePreviewAudio() {
+      if (previewAudio) return previewAudio;
+      const element = new Audio();
+      element.preload = 'none';
+      element.referrerPolicy = 'no-referrer';
+      element.volume = volume;
+      element.addEventListener('playing', () => {
+        if (previewAudio !== element || !previewId) return;
+        clearPreviewTimer();
+        previewState = 'playing';
+        emit();
+      });
+      element.addEventListener('waiting', () => {
+        if (previewAudio !== element || !previewId || previewState === 'error') return;
+        if (previewState === 'playing') {
+          previewState = 'loading';
+          emit();
+        }
+      });
+      element.addEventListener('error', () => {
+        if (previewAudio !== element || !previewId) return;
+        clearPreviewTimer();
+        previewState = 'error';
+        emit();
+      });
+      previewAudio = element;
+      return element;
+    }
+
+    function cancelPreview(resumeMain) {
+      clearPreviewTimer();
+      const element = previewAudio;
+      const shouldResume = !!(resumeMain && previewResumeMain);
+      const hadPreview = !!previewId || previewState !== 'idle';
+      previewId = '';
+      previewName = '';
+      previewState = 'idle';
+      previewResumeMain = false;
+      if (element) {
+        try {
+          element.pause();
+          element.removeAttribute('src');
+          element.load();
+        } catch {
+          /* The element still stops with the page. */
+        }
+      }
+      if (hadPreview) emit();
+      if (shouldResume) playRadio();
+    }
+
+    function stopPreview() {
+      cancelPreview(true);
+    }
+
+    function previewStation(station) {
+      if (!station) return;
+      const source = streamUrlFor(station);
+      if (!validStreamUrl(source)) return;
+      if (previewId === station.id && previewState !== 'error') {
+        stopPreview();
+        return;
+      }
+      const wasLive = playing || connecting || buffering || reconnecting;
+      const resume = previewResumeMain || wasLive;
+      if (!previewId && wasLive) pauseRadio();
+      cancelPreview(false);
+      previewId = station.id;
+      previewName = station.name;
+      previewState = 'loading';
+      previewResumeMain = resume;
+      emit();
+      let element;
+      try {
+        element = ensurePreviewAudio();
+      } catch {
+        previewState = 'error';
+        emit();
+        return;
+      }
+      element.volume = volume;
+      element.src = source;
+      element.load();
+      clearPreviewTimer();
+      previewTimer = window.setTimeout(() => {
+        previewTimer = 0;
+        if (!previewId || previewState === 'playing' || previewState === 'error') return;
+        previewState = 'error';
+        emit();
+      }, 15000);
+      let attempt;
+      try {
+        attempt = element.play();
+      } catch {
+        previewState = 'error';
+        emit();
+        return;
+      }
+      if (attempt && typeof attempt.catch === 'function') {
+        attempt.catch(() => {
+          if (!previewId || previewAudio !== element) return;
+          clearPreviewTimer();
+          previewState = 'error';
+          emit();
+        });
+      }
+    }
+
     function useRadio() {
       const [, force] = useReducer((version) => version + 1, 0);
       useEffect(() => {
@@ -4690,6 +4868,11 @@ window.__ModuleLoader__.load({
         stations,
         activeId,
         active: activeStation(),
+        previewId,
+        previewName,
+        previewState,
+        previewStation,
+        stopPreview,
       };
     }
 
@@ -4963,6 +5146,7 @@ window.__ModuleLoader__.load({
     }
 
     function playRadio() {
+      cancelPreview(false);
       if (playing || connecting) return;
       const station = activeStation();
       if (!station) return;
@@ -4978,6 +5162,7 @@ window.__ModuleLoader__.load({
     }
 
     function pauseRadio() {
+      cancelPreview(false);
       if (!playing && !connecting && !buffering && !reconnecting) {
         if (armed) {
           armed = false;
@@ -5126,6 +5311,7 @@ window.__ModuleLoader__.load({
     }
 
     function switchStation(nextId) {
+      cancelPreview(false);
       const next = stations.find((station) => station.id === nextId);
       if (!next || next.id === activeId) return;
       const wasLive = playing || connecting || buffering || reconnecting || armed || failed;
@@ -5190,6 +5376,13 @@ window.__ModuleLoader__.load({
           /* Keep the previous level. */
         }
       }
+      if (previewAudio) {
+        try {
+          previewAudio.volume = volume;
+        } catch {
+          /* Keep the previous level. */
+        }
+      }
       try {
         window.localStorage.setItem(VOLUME_KEY, String(volume));
       } catch {
@@ -5199,6 +5392,7 @@ window.__ModuleLoader__.load({
     }
 
     function shutdown() {
+      cancelPreview(false);
       clearConnectTimer();
       clearRetryTimer();
       clearStallTimer();
@@ -5577,30 +5771,38 @@ window.__ModuleLoader__.load({
       const addToggleRef = useRef(null);
       const searchAbortRef = useRef(null);
       const percent = Math.round(state.volume * 100);
-      const status = state.failed
-        ? t('stateError')
-        : state.reconnecting
-          ? t('stateReconnecting')
-          : state.buffering
-            ? t('stateBuffering')
-            : state.connecting
-              ? t('stateConnecting')
-              : state.playing
-                ? t('stateOn')
-                : state.armed
-                  ? t('stateArmed')
-                  : t('stateOff');
+      const status = state.previewId
+        ? state.previewState === 'error'
+          ? t('previewError')
+          : t('statePreviewing')
+        : state.failed
+          ? t('stateError')
+          : state.reconnecting
+            ? t('stateReconnecting')
+            : state.buffering
+              ? t('stateBuffering')
+              : state.connecting
+                ? t('stateConnecting')
+                : state.playing
+                  ? t('stateOn')
+                  : state.armed
+                    ? t('stateArmed')
+                    : t('stateOff');
       const stateClass =
         'dsh-nr-row-state' +
-        (state.failed
-          ? ' is-error'
-          : state.reconnecting || state.buffering || state.connecting
-            ? ' is-buffering'
-            : state.playing
-              ? ' is-on'
-              : state.armed
-                ? ' is-armed'
-                : '');
+        (state.previewId
+          ? state.previewState === 'error'
+            ? ' is-error'
+            : ' is-buffering'
+          : state.failed
+            ? ' is-error'
+            : state.reconnecting || state.buffering || state.connecting
+              ? ' is-buffering'
+              : state.playing
+                ? ' is-on'
+                : state.armed
+                  ? ' is-armed'
+                  : '');
       const active = state.active || DEFAULT_SEED;
       const hue = stationHue(active);
       const avatarStyle = {
@@ -5623,6 +5825,7 @@ window.__ModuleLoader__.load({
       useEffect(
         () => () => {
           if (searchAbortRef.current) searchAbortRef.current.abort();
+          state.stopPreview();
         },
         [],
       );
@@ -5683,6 +5886,7 @@ window.__ModuleLoader__.load({
       }
 
       function closeAdd() {
+        state.stopPreview();
         if (searchAbortRef.current) {
           searchAbortRef.current.abort();
           searchAbortRef.current = null;
@@ -5698,6 +5902,7 @@ window.__ModuleLoader__.load({
       }
 
       function onDraftChange(event) {
+        state.stopPreview();
         if (searchAbortRef.current) {
           searchAbortRef.current.abort();
           searchAbortRef.current = null;
@@ -5711,6 +5916,7 @@ window.__ModuleLoader__.load({
       }
 
       function runSearch(query) {
+        state.stopPreview();
         if (!query || query.length < 2) {
           setError(t('searchMin'));
           return;
@@ -5772,6 +5978,7 @@ window.__ModuleLoader__.load({
       }
 
       function runCountry(code) {
+        state.stopPreview();
         if (!code) return;
         if (searchAbortRef.current) searchAbortRef.current.abort();
         const country = countries.find((item) => item.code === code);
@@ -5833,6 +6040,7 @@ window.__ModuleLoader__.load({
 
       function addFound(station) {
         if (!station) return;
+        state.stopPreview();
         if (
           stations.some(
             (existing) => existing.id === station.id || existing.streamUrl === station.streamUrl,
@@ -5874,6 +6082,7 @@ window.__ModuleLoader__.load({
             setError(t('addLimit'));
             return;
           }
+          state.stopPreview();
           stations.push(parsed);
           persistStations();
           setDraft('');
@@ -6033,6 +6242,7 @@ window.__ModuleLoader__.load({
                       disabled: countriesLoading,
                       'aria-label': t('countryLabel'),
                       onChange: (event) => {
+                        state.stopPreview();
                         if (searchAbortRef.current) {
                           searchAbortRef.current.abort();
                           searchAbortRef.current = null;
@@ -6104,36 +6314,110 @@ window.__ModuleLoader__.load({
                                 ]
                                   .filter(Boolean)
                                   .join(' · ');
+                                const isPreview = state.previewId === station.id;
+                                const previewError =
+                                  isPreview && state.previewState === 'error';
                                 return h(
-                                  'button',
+                                  'div',
                                   {
                                     key: station.id,
-                                    type: 'button',
-                                    className: 'dsh-nr-result',
-                                    'aria-label': t('searchAdd').replace(
-                                      '{station}',
-                                      station.name,
-                                    ),
-                                    title: t('searchAdd').replace('{station}', station.name),
-                                    onClick: () => addFound(station),
+                                    className:
+                                      'dsh-nr-result-row' +
+                                      (isPreview ? ' is-previewing' : ''),
                                   },
                                   h(
-                                    'span',
-                                    { className: 'dsh-nr-result-rank', 'aria-hidden': 'true' },
-                                    String(index + 1),
+                                    'button',
+                                    {
+                                      type: 'button',
+                                      className:
+                                        'dsh-nr-preview' +
+                                        (isPreview ? ' is-active' : '') +
+                                        (isPreview && state.previewState === 'loading'
+                                          ? ' is-loading'
+                                          : '') +
+                                        (previewError ? ' is-error' : ''),
+                                      'aria-label':
+                                        isPreview && !previewError
+                                          ? t('previewStop')
+                                          : t('previewPlay').replace(
+                                              '{station}',
+                                              station.name,
+                                            ),
+                                      'aria-pressed':
+                                        isPreview && !previewError ? 'true' : 'false',
+                                      onClick: () => {
+                                        if (isPreview && !previewError) {
+                                          state.stopPreview();
+                                        } else {
+                                          state.previewStation(station);
+                                        }
+                                      },
+                                    },
+                                    h(
+                                      'svg',
+                                      {
+                                        viewBox: '0 0 12 12',
+                                        width: 11,
+                                        height: 11,
+                                        fill: 'none',
+                                        'aria-hidden': 'true',
+                                        focusable: 'false',
+                                      },
+                                      isPreview && !previewError
+                                        ? h('rect', {
+                                            x: 2.5,
+                                            y: 2.5,
+                                            width: 7,
+                                            height: 7,
+                                            rx: 1.2,
+                                            fill: 'currentColor',
+                                          })
+                                        : h('path', {
+                                            d: 'M4 2.4 9.5 6 4 9.6Z',
+                                            fill: 'currentColor',
+                                          }),
+                                    ),
                                   ),
                                   h(
-                                    'span',
-                                    { className: 'dsh-nr-result-main' },
-                                    h('span', { className: 'dsh-nr-result-name' }, station.name),
-                                    meta
-                                      ? h('span', { className: 'dsh-nr-result-meta' }, meta)
-                                      : null,
-                                  ),
-                                  h(
-                                    'span',
-                                    { className: 'dsh-nr-result-plus', 'aria-hidden': 'true' },
-                                    '+',
+                                    'button',
+                                    {
+                                      type: 'button',
+                                      className: 'dsh-nr-result',
+                                      'aria-label': t('searchAdd').replace(
+                                        '{station}',
+                                        station.name,
+                                      ),
+                                      title: t('searchAdd').replace('{station}', station.name),
+                                      onClick: () => addFound(station),
+                                    },
+                                    h(
+                                      'span',
+                                      {
+                                        className: 'dsh-nr-result-rank',
+                                        'aria-hidden': 'true',
+                                      },
+                                      String(index + 1),
+                                    ),
+                                    h(
+                                      'span',
+                                      { className: 'dsh-nr-result-main' },
+                                      h(
+                                        'span',
+                                        { className: 'dsh-nr-result-name' },
+                                        station.name,
+                                      ),
+                                      meta
+                                        ? h('span', { className: 'dsh-nr-result-meta' }, meta)
+                                        : null,
+                                    ),
+                                    h(
+                                      'span',
+                                      {
+                                        className: 'dsh-nr-result-plus',
+                                        'aria-hidden': 'true',
+                                      },
+                                      '+',
+                                    ),
                                   ),
                                 );
                               }),

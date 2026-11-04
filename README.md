@@ -13,7 +13,7 @@
 - **Ambience** — a pointer-aware aurora and starfield across the whole frame, with drifting haze, soft clouds, and a faint Milky Way. On by default. Live weather adds cloud cover, drizzle, rain, showers, snow, fog, or a storm flash, using rain/snow amounts, probability, visibility, gusts, and CAPE from the 15-minute nowcast. NOAA's planetary K index lets the aurora breathe with geomagnetic activity.
 - **Sky** — follows your local clock from dawn to night. A full-frame phase wash, horizon haze, a sun by day, and a phase-accurate moon carry the hour across the page. The moon is only drawn when it is actually above the horizon; its tooltip carries today's rise and set. The Settings strip also shows sunrise, sunset, the moon phase, and a one-line weather summary with a condition glyph. Drag the strip to preview any hour, including the moon at that hour; **Live** returns to the clock.
 - **Theme** — a deep-space palette for the whole app, with a lavender light variant, applied as a token skin. **Sky accent** optionally retints only the interactive accent tokens from dawn amber to night lavender, leaving surfaces and text stable.
-- **Station** — five Radio Garden stations: Smooth Jazz 24/7 (default), Fox News Radio, FM Kahoku 78.8 FM, Ashiya Radio, and Listen Moe. Search and discover thousands of stations through Radio Browser, including the 10 most popular stations in any country (ordered by Radio Browser click popularity), or add a Radio Garden URL; direct results play from their own stream. Dropped streams retry automatically.
+- **Station** — five Radio Garden stations: Smooth Jazz 24/7 (default), Fox News Radio, FM Kahoku 78.8 FM, Ashiya Radio, and Listen Moe. Search and discover thousands of stations through Radio Browser, including the 10 most popular stations in any country (ordered by Radio Browser click popularity), or add a Radio Garden URL; direct results play from their own stream. Every result has a **preview** button that auditions the stream without adding it or changing the active station; the main stream pauses and resumes when preview stops. Dropped streams retry automatically.
 
 The composer sparkle is the **Follow the clock** switch, and its background is a tiny live sky for the current hour. **Settings → General → Nebula Sky** also holds the theme, ambience, weather, precise-location, and sky-accent switches. Theme, sky, ambience, weather, and sky accent default on; precise location is opt-in. Dark is the default appearance.
 
@@ -66,7 +66,7 @@ link:/absolute/path/to/dsh-nebula
 | Sky accent | Nebula Sky switch |
 | Current weather summary | Nebula Sky, below the switches |
 | Play / pause | Composer radio-tower icon or OS media keys |
-| Stations, volume, search, country top 10, Add station | Settings → General → Nebula Station |
+| Stations, volume, search, country top 10, preview, Add station | Settings → General → Nebula Station |
 
 ## Good to know
 
