@@ -523,7 +523,7 @@ window.__ModuleLoader__.load({
       if (kind === 'storm') return 1;
       const amount = Math.max(0, Number(currentWeather.precip) || 0);
       if (kind === 'snow') return Math.min(1, 0.35 + amount * 0.35);
-      return Math.min(1, Math.max(0.22, 0.22 + amount / 1.4));
+      return Math.min(1, Math.max(0.18, 0.18 + amount / 5));
     }
 
     function weatherStarDim(currentWeather) {
