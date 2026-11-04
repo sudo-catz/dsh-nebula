@@ -849,13 +849,71 @@ window.__ModuleLoader__.load({
       return { kind: 'normal', sunrise, sunset };
     }
 
-    const MOON_EPOCH = Date.UTC(2000, 0, 6, 18, 14);
-    const MOON_SYNODIC = 29.530588853;
     function moonPhase(date = new Date()) {
-      const days = (date.getTime() - MOON_EPOCH) / 86400000;
-      let phase = (days % MOON_SYNODIC) / MOON_SYNODIC;
-      phase = ((phase % 1) + 1) % 1;
-      const illumination = Math.round(((1 - Math.cos(TAU * phase)) / 2) * 100);
+      // Low-precision lunar and solar longitudes (Schlyter/Meeus). This is
+      // accurate to a fraction of a degree, unlike the mean-lunation count
+      // that drifted by about half a day near new moon and over-reported the
+      // illuminated percentage.
+      const RAD = Math.PI / 180;
+      const days = (date.getTime() - Date.UTC(1999, 11, 31)) / 86400000;
+      const sin = Math.sin;
+      const cos = Math.cos;
+      const norm = (value) => ((value % 360) + 360) % 360;
+
+      const sunW = 282.9404 + 4.70935e-5 * days;
+      const sunM = norm(356.047 + 0.9856002585 * days);
+      const sunLon = norm(
+        sunW + sunM + 1.915 * sin(sunM * RAD) + 0.02 * sin(2 * sunM * RAD),
+      );
+
+      const node = norm(125.1228 - 0.0529538083 * days);
+      const inclination = 5.1454;
+      const periapsis = norm(318.0634 + 0.1643573223 * days);
+      const eccentricity = 0.0549;
+      const moonM = norm(115.3654 + 13.0649929509 * days);
+      const eccentricAnomaly =
+        moonM +
+        (180 / Math.PI) *
+          eccentricity *
+          sin(moonM * RAD) *
+          (1 + eccentricity * cos(moonM * RAD));
+      const x = 60.2666 * (cos(eccentricAnomaly * RAD) - eccentricity);
+      const y =
+        60.2666 * Math.sqrt(1 - eccentricity * eccentricity) * sin(eccentricAnomaly * RAD);
+      const radius = Math.hypot(x, y);
+      const trueAnomaly = Math.atan2(y, x) / RAD;
+      const argument = trueAnomaly + periapsis;
+      const moonX =
+        radius *
+        (cos(node * RAD) * cos(argument * RAD) -
+          sin(node * RAD) * sin(argument * RAD) * cos(inclination * RAD));
+      const moonY =
+        radius *
+        (sin(node * RAD) * cos(argument * RAD) +
+          cos(node * RAD) * sin(argument * RAD) * cos(inclination * RAD));
+
+      let moonLon = Math.atan2(moonY, moonX) / RAD;
+      const meanLon = norm(node + periapsis + moonM);
+      const elongation = norm(meanLon - sunLon);
+      const latitudeArgument = norm(meanLon - node);
+
+      moonLon +=
+        -1.274 * sin((moonM - 2 * elongation) * RAD) +
+        0.658 * sin(2 * elongation * RAD) -
+        0.186 * sin(sunM * RAD) -
+        0.059 * sin((2 * moonM - 2 * elongation) * RAD) -
+        0.057 * sin((moonM - 2 * elongation + sunM) * RAD) +
+        0.053 * sin((moonM + 2 * elongation) * RAD) +
+        0.046 * sin((2 * elongation - sunM) * RAD) +
+        0.041 * sin((moonM - sunM) * RAD) -
+        0.035 * sin(elongation * RAD) -
+        0.031 * sin((moonM + sunM) * RAD) -
+        0.015 * sin((2 * latitudeArgument - 2 * elongation) * RAD) +
+        0.011 * sin((moonM - 4 * elongation) * RAD);
+
+      const delta = norm(moonLon - sunLon);
+      const phase = delta / 360;
+      const illumination = Math.round(((1 - cos(delta * RAD)) / 2) * 100);
       let key = 'moonNew';
       if (phase < 0.03 || phase >= 0.97) key = 'moonNew';
       else if (phase < 0.22) key = 'moonWaxingCrescent';
