@@ -3769,6 +3769,10 @@ window.__ModuleLoader__.load({
       countryError: 'Country list unavailable.',
       topTenButton: 'Top 10',
       topStations: 'Top 10 in {country}',
+      sortLabel: 'Rank by',
+      sortClicks: 'Clicks',
+      sortVotes: 'Votes',
+      sortTrend: 'Trend',
       searchAdd: 'Add {station}',
       addInvalid: 'Use a radio.garden/listen/… URL, or search by station name.',
       addDuplicate: 'That station is already in the list.',
@@ -4160,6 +4164,44 @@ window.__ModuleLoader__.load({
 .dsh-nr-discover:disabled {
   opacity: 0.55;
   cursor: default;
+}
+.dsh-nr-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.dsh-nr-sort-label {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  margin-right: 4px;
+}
+.dsh-nr-sort {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.dsh-nr-sort:hover {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-nr-sort.is-active {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-sort:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
 }
 .dsh-nr-country-hint {
   color: var(--dsw-alias-state-error-primary);
@@ -4668,6 +4710,8 @@ window.__ModuleLoader__.load({
         bitrate: Number(entry.bitrate) || 0,
         codec: String(entry.codec || '').trim().slice(0, 20),
         clickcount: Number(entry.clickcount) || 0,
+        votes: Number(entry.votes) || 0,
+        clicktrend: Number(entry.clicktrend) || 0,
       };
     }
 
@@ -5825,6 +5869,7 @@ window.__ModuleLoader__.load({
       const [countriesLoading, setCountriesLoading] = useState(false);
       const [countriesError, setCountriesError] = useState(false);
       const [countryCode, setCountryCode] = useState('');
+      const [sortBy, setSortBy] = useState('clickcount');
       const addInputRef = useRef(null);
       const addToggleRef = useRef(null);
       const searchAbortRef = useRef(null);
@@ -6040,12 +6085,21 @@ window.__ModuleLoader__.load({
           });
       }
 
-      function runCountry(code) {
+      function runCountry(code, nextSort = sortBy) {
         state.stopPreview();
         if (!code) return;
         if (searchAbortRef.current) searchAbortRef.current.abort();
         const country = countries.find((item) => item.code === code);
-        const label = t('topStations').replace('{country}', country ? country.name : code);
+        const sortLabel =
+          nextSort === 'votes'
+            ? t('sortVotes')
+            : nextSort === 'clicktrend'
+              ? t('sortTrend')
+              : t('sortClicks');
+        const label =
+          t('topStations').replace('{country}', country ? country.name : code) +
+          ' · ' +
+          sortLabel;
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
         searchAbortRef.current = controller;
         setSearching(true);
@@ -6055,7 +6109,7 @@ window.__ModuleLoader__.load({
         const params = new URLSearchParams({
           countrycode: code,
           hidebroken: 'true',
-          order: 'clickcount',
+          order: nextSort,
           reverse: 'true',
           limit: '30',
         });
@@ -6085,7 +6139,10 @@ window.__ModuleLoader__.load({
               seen.add(station.id);
               next.push(station);
             }
-            next.sort((a, b) => b.clickcount - a.clickcount);
+            next.sort(
+              (a, b) =>
+                (Number(b[nextSort]) || 0) - (Number(a[nextSort]) || 0),
+            );
             if (!next.length) setSearchError(t('searchEmpty'));
             else setResults(next.slice(0, 10));
           })
@@ -6099,6 +6156,21 @@ window.__ModuleLoader__.load({
               setSearching(false);
             }
           });
+      }
+
+      function changeSort(next) {
+        if (next === sortBy) return;
+        state.stopPreview();
+        if (searchAbortRef.current) {
+          searchAbortRef.current.abort();
+          searchAbortRef.current = null;
+          setSearching(false);
+        }
+        setSortBy(next);
+        setResults([]);
+        setSearchError('');
+        setResultLabel('');
+        if (countryCode) runCountry(countryCode, next);
       }
 
       function addFound(station) {
@@ -6390,6 +6462,31 @@ window.__ModuleLoader__.load({
                     t('topTenButton'),
                   ),
                 ),
+                countryCode
+                  ? h(
+                      'div',
+                      { className: 'dsh-nr-sort-row' },
+                  h('span', { className: 'dsh-nr-sort-label' }, t('sortLabel')),
+                  [
+                    ['clickcount', t('sortClicks')],
+                    ['votes', t('sortVotes')],
+                    ['clicktrend', t('sortTrend')],
+                  ].map(([key, label]) =>
+                    h(
+                      'button',
+                      {
+                        key,
+                        type: 'button',
+                        className:
+                          'dsh-nr-sort' + (sortBy === key ? ' is-active' : ''),
+                        'aria-pressed': sortBy === key ? 'true' : 'false',
+                        onClick: () => changeSort(key),
+                      },
+                      label,
+                    ),
+                  ),
+                )
+                  : null,
                 countriesError
                   ? h('div', { className: 'dsh-nr-country-hint' }, t('countryError'))
                   : null,
