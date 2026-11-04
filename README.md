@@ -11,9 +11,9 @@
 ## Features
 
 - **Ambience** — a pointer-aware aurora and starfield across the whole frame. On by default.
-- **Sky** — follows your local clock from dawn to night. Drag the Settings strip to preview any hour; **Live** returns to the clock.
+- **Sky** — follows your local clock from dawn to night, with sunrise and sunset markers and the current moon phase on the Settings strip. Drag the strip to preview any hour; **Live** returns to the clock.
 - **Theme** — a deep-space palette for the whole app, with a lavender light variant, applied as a token skin.
-- **Station** — five Radio Garden stations: Smooth Jazz 24/7 (default), Fox News Radio, FM Kahoku 78.8 FM, Ashiya Radio, and Listen Moe. Add and remove your own.
+- **Station** — five Radio Garden stations: Smooth Jazz 24/7 (default), Fox News Radio, FM Kahoku 78.8 FM, Ashiya Radio, and Listen Moe. Add and remove your own; dropped streams retry automatically.
 
 The composer sparkle is the **Follow the clock** switch. **Settings → General → Nebula Sky** also holds the theme and ambience switches. All three default on, with Dark as the default appearance.
 
@@ -38,6 +38,8 @@ or pin the release:
 ```
 dsh-nebula@1.1.0
 ```
+
+`main` may be newer than the published npm release.
 
 ### From Git
 
@@ -66,8 +68,8 @@ link:/absolute/path/to/dsh-nebula
 
 ## Good to know
 
-- Client-only: no Host work, filesystem or network tools, dependencies, install scripts, or telemetry. Settings live in `localStorage`.
-- The sky reads the device clock only; no geolocation.
+- Client-only: no Host work, dependencies, install scripts, or telemetry. Settings live in `localStorage`.
+- The sky reads the device clock and makes one approximate IP lookup (ipwho.is, cached for 24 hours) to place sunrise and sunset. No location permission prompt. If the IP timezone disagrees with the device timezone, a representative city for the device timezone is used.
 - Radio Garden's listen endpoint is unofficial and intended for personal use.
 - The five default stations are fixed; custom stations are yours to remove.
 - Built for DSH Web 0.2.x. MIT © 2026 sudo-catz.

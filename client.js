@@ -27,6 +27,31 @@ window.__ModuleLoader__.load({
     const SKY_KEY = 'dsh.nebula-sky.enabled';
     const AMBIENCE_KEY = 'dsh.nebula-ambience.visible';
     const DEFAULTS_KEY = 'dsh.nebula.defaults.v2';
+    const GEO_KEY = 'dsh.nebula-sky.geo';
+    const GEO_TTL_MS = 24 * 60 * 60 * 1000;
+    const GEO_ENDPOINT = 'https://ipwho.is/';
+    const DEVICE_ZONE = (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      } catch {
+        return 'UTC';
+      }
+    })();
+    // If IP geolocation disagrees with the machine timezone, it is usually a
+    // VPN or ISP exit. In that case use a representative city for the machine
+    // timezone so the markers stay aligned with the clock on the strip.
+    const TZ_FALLBACKS = {
+      'Asia/Jakarta': { lat: -6.2088, lon: 106.8456 },
+      'Asia/Kuala_Lumpur': { lat: 3.139, lon: 101.6869 },
+      'Asia/Singapore': { lat: 1.3521, lon: 103.8198 },
+      'Asia/Tokyo': { lat: 35.6762, lon: 139.6503 },
+      'Europe/Paris': { lat: 48.8566, lon: 2.3522 },
+      'Europe/London': { lat: 51.5074, lon: -0.1278 },
+      'Atlantic/Reykjavik': { lat: 64.1466, lon: -21.9426 },
+      'America/New_York': { lat: 40.7128, lon: -74.006 },
+      'America/Los_Angeles': { lat: 34.0522, lon: -118.2437 },
+      'Australia/Sydney': { lat: -33.8688, lon: 151.2093 },
+    };
     const TAU = Math.PI * 2;
 
     const EN = {
@@ -43,8 +68,18 @@ window.__ModuleLoader__.load({
       ambienceOffStatus: 'Ambience off',
       skyHintAmbienceOff: 'Ambience is off. Turn it on above to see the sky.',
       skyTitle: 'Nebula Sky',
+      skySunrise: 'Sunrise',
+      skySunset: 'Sunset',
+      moonNew: 'New moon',
+      moonWaxingCrescent: 'Waxing crescent',
+      moonFirstQuarter: 'First quarter',
+      moonWaxingGibbous: 'Waxing gibbous',
+      moonFull: 'Full moon',
+      moonWaningGibbous: 'Waning gibbous',
+      moonLastQuarter: 'Last quarter',
+      moonWaningCrescent: 'Waning crescent',
       skyHint: 'Drag the strip to preview any hour. Live returns to the clock.',
-      skyHintPreview: 'Previewing {phase} at {time}. Live returns to the local clock.',
+      skyHintPreview: 'Previewing {phase} at {time}. Live returns to the clock.',
       skyHintFixed: 'Fixed palette. Turn Follow the clock on above to follow the day.',
       skyFollow: 'Follow the clock',
       skyStatus: 'Now: {phase} · {time}',
@@ -52,8 +87,8 @@ window.__ModuleLoader__.load({
       skyLive: 'Live',
       skyScrub: 'Drag to preview the sky at any hour',
       skyFixed: 'Fixed sky',
-      skyActionOn: 'Stop following the local clock',
-      skyActionOff: 'Follow the local clock',
+      skyActionOn: 'Stop following the clock',
+      skyActionOff: 'Follow the clock',
       phaseNight: 'night',
       phaseDawn: 'dawn',
       phaseMorning: 'morning',
@@ -133,6 +168,49 @@ window.__ModuleLoader__.load({
   font-size: 14px;
   font-weight: 400;
   line-height: 22px;
+}
+.dsh-sky-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dsh-sky-moon {
+  flex: none;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.8;
+  cursor: default;
+  filter: grayscale(1) brightness(1.15) drop-shadow(0 0 3px rgba(190, 210, 255, 0.35));
+}
+.dsh-sky-sun {
+  position: absolute;
+  top: -9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%);
+  color: #f5c76a;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px rgba(245, 199, 106, 0.5));
+}
+.dsh-sky-sun.is-set {
+  color: #f08a7a;
+  filter: drop-shadow(0 0 3px rgba(240, 138, 122, 0.5));
+}
+.dsh-sky-sun-icon { display: block; }
+.dsh-sky-sun::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 1px;
+  height: 4px;
+  transform: translateX(-50%);
+  background: currentColor;
+  opacity: 0.55;
 }
 .dsh-sky-head-right {
   display: flex;
@@ -344,6 +422,8 @@ window.__ModuleLoader__.load({
       }
     })();
 
+    let skyGeo = readGeo();
+
     // null follows the clock; a number pins the sky to that minute for preview.
     let skyPreview = null;
 
@@ -351,6 +431,96 @@ window.__ModuleLoader__.load({
 
     function emit() {
       for (const listener of listeners) listener();
+    }
+
+    function readGeo() {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(GEO_KEY) || 'null');
+        if (
+          parsed &&
+          Number.isFinite(parsed.lat) &&
+          Number.isFinite(parsed.lon) &&
+          parsed.lat >= -90 &&
+          parsed.lat <= 90 &&
+          parsed.lon >= -180 &&
+          parsed.lon <= 180
+        ) {
+          return {
+            lat: parsed.lat,
+            lon: parsed.lon,
+            tz: typeof parsed.tz === 'string' ? parsed.tz : '',
+            ts: Number(parsed.ts) || 0,
+          };
+        }
+      } catch {
+        /* No cached location. */
+      }
+      return null;
+    }
+
+    let geoController = null;
+    function refreshGeo() {
+      const now = Date.now();
+      if (skyGeo && skyGeo.tz && now - skyGeo.ts < GEO_TTL_MS) return null;
+      if (typeof window.fetch !== 'function') return null;
+      if (geoController) geoController.abort();
+      const controller = typeof AbortController === 'function' ? new AbortController() : null;
+      geoController = controller;
+      const timer = window.setTimeout(() => {
+        if (controller) controller.abort();
+      }, 8000);
+      window
+        .fetch(GEO_ENDPOINT, {
+          cache: 'no-store',
+          credentials: 'omit',
+          signal: controller ? controller.signal : undefined,
+        })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          if (geoController !== controller) return;
+          const lat = Number(data && data.latitude);
+          const lon = Number(data && data.longitude);
+          if (
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lon) ||
+            lat < -90 ||
+            lat > 90 ||
+            lon < -180 ||
+            lon > 180
+          ) {
+            return;
+          }
+          const tz =
+            data && data.timezone
+              ? typeof data.timezone === 'string'
+                ? data.timezone
+                : data.timezone.id || ''
+              : '';
+          skyGeo = { lat, lon, tz, ts: Date.now() };
+          try {
+            window.localStorage.setItem(GEO_KEY, JSON.stringify(skyGeo));
+          } catch {
+            /* Private mode: the session location still applies. */
+          }
+          emit();
+        })
+        .catch(() => {
+          /* The sun markers stay hidden when the lookup fails. */
+        })
+        .finally(() => {
+          window.clearTimeout(timer);
+          if (geoController === controller) geoController = null;
+        });
+      return controller;
+    }
+
+    function resolveSkyLocation(geo) {
+      const fallback = TZ_FALLBACKS[DEVICE_ZONE] || null;
+      if (!geo) return fallback;
+      if (geo.tz && geo.tz === DEVICE_ZONE) return { lat: geo.lat, lon: geo.lon };
+      if (fallback) return fallback;
+      if (!geo.tz) return { lat: geo.lat, lon: geo.lon };
+      return null;
     }
 
     function setSkyEnabled(next) {
@@ -448,6 +618,17 @@ window.__ModuleLoader__.load({
         };
       }, []);
       return skyPreview;
+    }
+
+    function useSkyGeo() {
+      const [, force] = useReducer((version) => version + 1, 0);
+      useEffect(() => {
+        listeners.add(force);
+        return () => {
+          listeners.delete(force);
+        };
+      }, []);
+      return skyGeo;
     }
 
     // The sky is designed for the dark palette. On the first run of this
@@ -589,13 +770,85 @@ window.__ModuleLoader__.load({
       return now.getHours() * 60 + now.getMinutes();
     }
 
+    function dayOfYear(date) {
+      return Math.floor(
+        (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) -
+          Date.UTC(date.getFullYear(), 0, 0)) /
+          86400000,
+      );
+    }
+
+    function sunTimes(geo, date = new Date()) {
+      if (!geo || !Number.isFinite(geo.lat) || !Number.isFinite(geo.lon)) return null;
+      const n = dayOfYear(date);
+      const gamma = ((2 * Math.PI) / 365) * (n - 1);
+      const cos = Math.cos;
+      const sin = Math.sin;
+      const eqtime =
+        229.18 *
+        (0.000075 +
+          0.001868 * cos(gamma) -
+          0.032077 * sin(gamma) -
+          0.014615 * cos(2 * gamma) -
+          0.040849 * sin(2 * gamma));
+      const decl =
+        0.006918 -
+        0.399912 * cos(gamma) +
+        0.070257 * sin(gamma) -
+        0.006758 * cos(2 * gamma) +
+        0.000907 * sin(2 * gamma) -
+        0.002697 * cos(3 * gamma) +
+        0.00148 * sin(3 * gamma);
+      const lat = (geo.lat * Math.PI) / 180;
+      const cosHa =
+        cos((90.833 * Math.PI) / 180) / (cos(lat) * cos(decl)) - Math.tan(lat) * Math.tan(decl);
+      if (cosHa > 1) return { kind: 'polarNight' };
+      if (cosHa < -1) return { kind: 'midnightSun' };
+      const ha = (Math.acos(cosHa) * 180) / Math.PI;
+      const solarNoon = 720 - 4 * geo.lon - eqtime;
+      const sunriseUtc = solarNoon - 4 * ha;
+      const sunsetUtc = solarNoon + 4 * ha;
+      const baseUtc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+      const sunriseInstant = new Date(baseUtc + sunriseUtc * 60000);
+      const sunsetInstant = new Date(baseUtc + sunsetUtc * 60000);
+      // Resolve the machine offset at the event instant, not at the current
+      // instant; this matters on DST transition days.
+      const sunrise = Math.round(
+        (((sunriseUtc - sunriseInstant.getTimezoneOffset()) % 1440) + 1440) % 1440,
+      ) % 1440;
+      const sunset = Math.round(
+        (((sunsetUtc - sunsetInstant.getTimezoneOffset()) % 1440) + 1440) % 1440,
+      ) % 1440;
+      return { kind: 'normal', sunrise, sunset };
+    }
+
+    const MOON_EPOCH = Date.UTC(2000, 0, 6, 18, 14);
+    const MOON_SYNODIC = 29.530588853;
+    function moonPhase(date = new Date()) {
+      const days = (date.getTime() - MOON_EPOCH) / 86400000;
+      let phase = (days % MOON_SYNODIC) / MOON_SYNODIC;
+      phase = ((phase % 1) + 1) % 1;
+      const illumination = Math.round(((1 - Math.cos(TAU * phase)) / 2) * 100);
+      let key = 'moonNew';
+      if (phase < 0.03 || phase >= 0.97) key = 'moonNew';
+      else if (phase < 0.22) key = 'moonWaxingCrescent';
+      else if (phase < 0.28) key = 'moonFirstQuarter';
+      else if (phase < 0.47) key = 'moonWaxingGibbous';
+      else if (phase < 0.53) key = 'moonFull';
+      else if (phase < 0.72) key = 'moonWaningGibbous';
+      else if (phase < 0.78) key = 'moonLastQuarter';
+      else key = 'moonWaningCrescent';
+      return { key, illumination };
+    }
+
     function pad2(value) {
       return (value < 10 ? '0' : '') + value;
     }
 
     function clockTime(minute) {
-      const hour = Math.floor(minute / 60) % 24;
-      return pad2(hour) + ':' + pad2(minute % 60);
+      const stamp = ((Math.round(minute) % 1440) + 1440) % 1440;
+      const hour = Math.floor(stamp / 60);
+      return pad2(hour) + ':' + pad2(stamp % 60);
     }
 
     function mixNumber(from, to, u) {
@@ -1063,11 +1316,46 @@ window.__ModuleLoader__.load({
     /* Sky settings row                                                    */
     /* ------------------------------------------------------------------ */
 
+    const MOON_GLYPHS = {
+      moonNew: '🌑',
+      moonWaxingCrescent: '🌒',
+      moonFirstQuarter: '🌓',
+      moonWaxingGibbous: '🌔',
+      moonFull: '🌕',
+      moonWaningGibbous: '🌖',
+      moonLastQuarter: '🌗',
+      moonWaningCrescent: '🌘',
+    };
+
+    function SunIcon() {
+      return h(
+        'svg',
+        {
+          className: 'dsh-sky-sun-icon',
+          viewBox: '0 0 12 12',
+          width: 10,
+          height: 10,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.2,
+          strokeLinecap: 'round',
+          'aria-hidden': 'true',
+          focusable: 'false',
+        },
+        h('circle', { cx: 6, cy: 6, r: 2.1, fill: 'currentColor', stroke: 'none' }),
+        h('path', {
+          d: 'M6 1v1.6M6 9.4V11M1 6h1.6M9.4 6H11M2.5 2.5l1.1 1.1M8.4 8.4l1.1 1.1M9.5 2.5 8.4 3.6M3.6 8.4 2.5 9.5',
+        }),
+      );
+    }
+
     function SkyRow() {
       const ambienceOn = useAmbienceEnabled();
       const skyOn = useSkyEnabled();
       const themeOn = themeApi.useEnabled();
       const preview = useSkyPreview();
+      const geo = useSkyGeo();
+      const location = resolveSkyLocation(geo);
       const [minute, setMinute] = useState(() => minuteOfDay());
       const dragging = useRef(false);
       const stripRef = useRef(null);
@@ -1109,6 +1397,10 @@ window.__ModuleLoader__.load({
         .replace('{phase}', t(sample.phase))
         .replace('{time}', clockTime(shownMinute));
       const marker = Math.min(99.4, Math.max(0.6, (shownMinute / 1440) * 100));
+      const moon = moonPhase();
+      const moonLabel = t(moon.key) + ' ' + moon.illumination + '%';
+      const sun = location ? sunTimes(location) : null;
+      const sunPercent = (value) => Math.min(99.2, Math.max(0.8, (value / 1440) * 100));
 
       const scrubTo = (event) => {
         const rect =
@@ -1198,7 +1490,21 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { className: 'dsh-sky-head' },
-            h('div', { className: 'dsh-sky-title' }, t('skyTitle')),
+            h(
+              'div',
+              { className: 'dsh-sky-title-group' },
+              h('div', { className: 'dsh-sky-title' }, t('skyTitle')),
+              h(
+                'span',
+                {
+                  className: 'dsh-sky-moon',
+                  role: 'img',
+                  'aria-label': moonLabel,
+                  title: moonLabel,
+                },
+                h('span', { 'aria-hidden': 'true' }, MOON_GLYPHS[moon.key] || ''),
+              ),
+            ),
             h(
               'div',
               { className: 'dsh-sky-head-right' },
@@ -1241,6 +1547,34 @@ window.__ModuleLoader__.load({
               onKeyDown,
             },
             h('span', { className: 'dsh-sky-mark', style: { left: marker + '%' } }),
+            sun && sun.kind === 'normal'
+              ? [
+                  h(
+                    'span',
+                    {
+                      key: 'sunrise',
+                      className: 'dsh-sky-sun is-rise',
+                      style: { left: sunPercent(sun.sunrise) + '%' },
+                      role: 'img',
+                      'aria-label': t('skySunrise') + ' ' + clockTime(sun.sunrise),
+                      title: t('skySunrise') + ' ' + clockTime(sun.sunrise),
+                    },
+                    h(SunIcon),
+                  ),
+                  h(
+                    'span',
+                    {
+                      key: 'sunset',
+                      className: 'dsh-sky-sun is-set',
+                      style: { left: sunPercent(sun.sunset) + '%' },
+                      role: 'img',
+                      'aria-label': t('skySunset') + ' ' + clockTime(sun.sunset),
+                      title: t('skySunset') + ' ' + clockTime(sun.sunset),
+                    },
+                    h(SunIcon),
+                  ),
+                ]
+              : null,
           ),
           h(
             'div',
@@ -1282,6 +1616,13 @@ window.__ModuleLoader__.load({
         });
 
         seedDefaults(themeApi);
+
+        ctx.effect(() => {
+          const controller = refreshGeo();
+          return () => {
+            if (controller) controller.abort();
+          };
+        });
 
         if (themeFace) {
           // Wait for the host settings section to hydrate before writing a
@@ -1485,6 +1826,7 @@ window.__ModuleLoader__.load({
       for (const listener of listeners) listener();
     }
 
+
     function disposeOverride() {
       if (!override) return;
       try {
@@ -1571,6 +1913,9 @@ window.__ModuleLoader__.load({
     const DEFAULT_VOLUME = 0.4;
     const MAX_STATIONS = 20;
     const CONNECT_TIMEOUT_MS = 20000;
+    const STALL_TIMEOUT_MS = 12000;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS_MS = [1500, 3000, 6000];
     const STATION_PATTERN = /^https:\/\/radio\.garden\/listen\/([A-Za-z0-9._~-]+)\/([A-Za-z0-9_-]{4,64})\/?$/i;
     // The five stations that ship with the player. Smooth Jazz is the
     // default active station; all five are fixed and cannot be removed.
@@ -1590,17 +1935,25 @@ window.__ModuleLoader__.load({
       tooltipPlay: 'Play {station} — streamed via Radio Garden',
       tooltipPause: 'Pause {station}',
       tooltipConnecting: 'Connecting to {station}…',
+      tooltipBuffering: 'Buffering {station}…',
+      tooltipReconnecting: 'Reconnecting to {station}…',
       tooltipError: 'Stream unavailable — open the station page',
       tooltipArmed: 'Click to start {station}',
       title: 'Nebula Station',
       stationLabel: 'Station',
+      chooseStation: 'Choose station',
+      stations: 'Stations',
+      stationFooter: 'Add or remove stations in Settings → Nebula Station.',
       openStation: 'Open station page',
       removeStation: 'Remove',
       retry: 'Retry',
+      retryNow: 'Retry now',
       volumeLabel: 'Volume',
       stateOn: 'Playing',
       stateOff: 'Paused',
       stateConnecting: 'Connecting…',
+      stateBuffering: 'Buffering…',
+      stateReconnecting: 'Reconnecting…',
       stateError: 'Stream unavailable',
       stateArmed: 'Click to start',
       hint: 'Streams via Radio Garden.',
@@ -1644,6 +1997,54 @@ window.__ModuleLoader__.load({
 .dsh-nr-toggle.is-connecting { color: var(--dsw-alias-brand-primary); }
 .dsh-nr-toggle.is-error { color: var(--dsw-alias-state-error-primary); }
 .dsh-nr-toggle.is-armed { color: var(--dsw-alias-brand-primary); }
+.dsh-nr-split {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  transition: background-color 140ms ease;
+}
+.dsh-nr-split:hover,
+.dsh-nr-split:focus-within {
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-nr-split .dsh-nr-toggle {
+  border-radius: 8px 0 0 8px;
+}
+.dsh-nr-split .dsh-nr-toggle:hover {
+  background: transparent;
+}
+.dsh-nr-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  flex: none;
+  border: 0;
+  border-radius: 0 8px 8px 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  box-shadow: inset 1px 0 0 transparent;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.dsh-nr-split:hover .dsh-nr-menu,
+.dsh-nr-menu.is-open {
+  box-shadow: inset 1px 0 0 var(--dsw-alias-border-l1);
+}
+.dsh-nr-menu:hover { color: var(--dsw-alias-label-primary); }
+.dsh-nr-menu.is-open { color: var(--dsw-alias-brand-primary); }
+.dsh-nr-menu:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -1px;
+}
+.dsh-nr-chevron {
+  display: block;
+  transition: transform 140ms ease;
+}
+.dsh-nr-menu.is-open .dsh-nr-chevron { transform: rotate(180deg); }
 .dsh-nr-icon { display: block; }
 .dsh-nr-wave { opacity: 0.55; }
 .dsh-nr-toggle.is-playing .dsh-nr-wave,
@@ -1688,6 +2089,7 @@ window.__ModuleLoader__.load({
   line-height: 18px;
 }
 .dsh-nr-row-state.is-on { color: var(--dsw-alias-state-success-primary); }
+.dsh-nr-row-state.is-buffering { color: var(--dsw-alias-brand-primary); }
 .dsh-nr-row-state.is-error { color: var(--dsw-alias-state-error-primary); }
 .dsh-nr-row-state.is-armed { color: var(--dsw-alias-brand-primary); }
 .dsh-nr-panel {
@@ -1919,8 +2321,113 @@ window.__ModuleLoader__.load({
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 2px;
 }
+.dsh-nr-pop {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-overlay);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 16px 40px rgba(3, 5, 12, 0.35);
+  font-family: inherit;
+  animation: dsh-nr-pop-in 120ms ease-out;
+}
+@keyframes dsh-nr-pop-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.dsh-nr-pop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 4px;
+}
+.dsh-nr-pop-title {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dsh-nr-pop-state {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.dsh-nr-pop-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 4px 6px 6px;
+}
+.dsh-nr-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.dsh-nr-pop-item:hover { background: var(--dsw-alias-bg-layer-2); }
+.dsh-nr-pop-item.is-current { background: var(--dsw-alias-bg-layer-1); }
+.dsh-nr-pop-item.is-current:hover { background: var(--dsw-alias-bg-layer-2); }
+.dsh-nr-pop-item:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+.dsh-nr-pop-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: #f7f9ff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  user-select: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.dsh-nr-pop-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-nr-pop-item.is-current .dsh-nr-pop-name { font-weight: 500; }
+.dsh-nr-pop-check {
+  flex: none;
+  color: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-pop-foot {
+  padding: 7px 12px 9px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 15px;
+}
 @media (prefers-reduced-motion: reduce) {
   .dsh-nr-wave { animation: none; }
+  .dsh-nr-pop { animation: none; }
+  .dsh-nr-chevron { transition: none; }
 }
 `;
 
@@ -1930,7 +2437,12 @@ window.__ModuleLoader__.load({
     let loadedId = '';
     let playing = false;
     let connecting = false;
+    let buffering = false;
+    let reconnecting = false;
     let failed = false;
+    let retryCount = 0;
+    let retryTimer = 0;
+    let stallTimer = 0;
     let volume = readVolume();
     let stations = readStations();
     let activeId = readActiveId(stations);
@@ -2118,6 +2630,8 @@ window.__ModuleLoader__.load({
       return {
         playing,
         connecting,
+        buffering,
+        reconnecting,
         failed,
         armed,
         volume,
@@ -2138,6 +2652,28 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function clearRetryTimer() {
+      if (retryTimer) {
+        window.clearTimeout(retryTimer);
+        retryTimer = 0;
+      }
+    }
+
+    function clearStallTimer() {
+      if (stallTimer) {
+        window.clearTimeout(stallTimer);
+        stallTimer = 0;
+      }
+    }
+
+    function resetRecovery() {
+      clearRetryTimer();
+      clearStallTimer();
+      retryCount = 0;
+      reconnecting = false;
+      buffering = false;
+    }
+
     function applySource(element) {
       const station = activeStation();
       if (!station) return;
@@ -2150,6 +2686,34 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function markBuffering(element) {
+      if (!playbackIntent || failed) return;
+      clearConnectTimer();
+      buffering = true;
+      connecting = false;
+      emit();
+      clearStallTimer();
+      stallTimer = window.setTimeout(() => {
+        stallTimer = 0;
+        if (!audio || audio !== element || !playbackIntent) return;
+        if (!buffering) return;
+        playing = false;
+        buffering = false;
+        handleStreamFailure();
+      }, STALL_TIMEOUT_MS);
+    }
+
+    function onOnline() {
+      if (!playbackIntent || playing || connecting) return;
+      if (!failed && !reconnecting) return;
+      clearRetryTimer();
+      clearStallTimer();
+      retryCount = 0;
+      failed = false;
+      reconnecting = true;
+      startPlayback(true);
+    }
+
     function ensureAudio() {
       if (audio) return audio;
       const element = new Audio();
@@ -2159,98 +2723,157 @@ window.__ModuleLoader__.load({
       element.addEventListener('playing', () => {
         if (audio !== element) return;
         clearConnectTimer();
+        clearStallTimer();
+        clearRetryTimer();
         playing = true;
         connecting = false;
+        buffering = false;
+        reconnecting = false;
         failed = false;
+        retryCount = 0;
         armed = false;
         disarmGesture();
         emit();
       });
+      element.addEventListener('waiting', () => {
+        if (audio !== element) return;
+        markBuffering(element);
+      });
+      element.addEventListener('stalled', () => {
+        if (audio !== element) return;
+        markBuffering(element);
+      });
       element.addEventListener('pause', () => {
         if (audio !== element) return;
         clearConnectTimer();
+        clearStallTimer();
         playing = false;
         connecting = false;
+        buffering = false;
         emit();
       });
       element.addEventListener('error', () => {
         if (audio !== element) return;
         clearConnectTimer();
+        clearStallTimer();
         playing = false;
         connecting = false;
-        failed = true;
-        armed = false;
-        disarmGesture();
-        emit();
+        buffering = false;
+        const code = element.error && element.error.code;
+        if (code === 4) {
+          clearRetryTimer();
+          retryCount = 0;
+          reconnecting = false;
+          failed = true;
+          armed = false;
+          disarmGesture();
+          emit();
+          return;
+        }
+        handleStreamFailure();
       });
       element.addEventListener('ended', () => {
         if (audio !== element) return;
         clearConnectTimer();
+        clearStallTimer();
         playing = false;
         connecting = false;
-        emit();
+        buffering = false;
+        if (playbackIntent) {
+          handleStreamFailure();
+        } else {
+          reconnecting = false;
+          failed = false;
+          emit();
+        }
       });
+      window.addEventListener('online', onOnline);
       audio = element;
       loadedId = '';
       applySource(element);
       return element;
     }
 
+    function handleStreamFailure() {
+      clearConnectTimer();
+      clearStallTimer();
+      playing = false;
+      connecting = false;
+      buffering = false;
+      armed = false;
+      disarmGesture();
+      if (!playbackIntent) {
+        reconnecting = false;
+        failed = false;
+        emit();
+        return;
+      }
+      if (retryCount >= MAX_RETRIES) {
+        reconnecting = false;
+        failed = true;
+        emit();
+        return;
+      }
+      failed = false;
+      reconnecting = true;
+      emit();
+      clearRetryTimer();
+      const delay = RETRY_DELAYS_MS[Math.min(retryCount, RETRY_DELAYS_MS.length - 1)];
+      retryTimer = window.setTimeout(() => {
+        retryTimer = 0;
+        if (!playbackIntent || !reconnecting) return;
+        retryCount += 1;
+        startPlayback(true);
+      }, delay);
+    }
+
     function handlePlayFailure(error) {
+      if (error && error.name === 'AbortError') return;
       clearConnectTimer();
       connecting = false;
       playing = false;
+      buffering = false;
       if (error && error.name === 'NotAllowedError') {
+        clearRetryTimer();
+        clearStallTimer();
+        retryCount = 0;
+        reconnecting = false;
         failed = false;
         armed = true;
         armGesture();
         emit();
         return;
       }
-      if (!error || error.name !== 'AbortError') failed = true;
-      emit();
+      handleStreamFailure();
     }
 
-    function playRadio() {
-      if (playing || connecting) return;
+    function startPlayback(isRetry) {
       const station = activeStation();
       if (!station) return;
-      playbackIntent = true;
-      persistPlaybackIntent();
-      armed = false;
-      disarmGesture();
       let element;
       try {
         element = ensureAudio();
       } catch (error) {
         console.warn('[nebula-station] audio is unavailable', error);
+        reconnecting = false;
         failed = true;
         emit();
         return;
       }
-      if (loadedId !== station.id) {
+      if (isRetry || failed || loadedId !== station.id) {
         loadedId = '';
         applySource(element);
       }
-      if (failed) {
-        try {
-          element.load();
-        } catch {
-          /* The next play attempt surfaces the failure. */
-        }
-      }
       failed = false;
       connecting = true;
+      reconnecting = !!isRetry;
+      buffering = false;
       emit();
       clearConnectTimer();
       connectTimer = window.setTimeout(() => {
         connectTimer = 0;
         if (!audio || audio !== element) return;
-        if (connecting && !playing) {
-          connecting = false;
-          failed = true;
-          emit();
-        }
+        if (connecting && !playing) handleStreamFailure();
       }, CONNECT_TIMEOUT_MS);
       let attempt;
       try {
@@ -2267,8 +2890,43 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function retryNow() {
+      clearRetryTimer();
+      clearStallTimer();
+      retryCount = 0;
+      reconnecting = false;
+      buffering = false;
+      failed = false;
+      loadedId = '';
+      if (audio) {
+        try {
+          audio.pause();
+        } catch {
+          /* State settles below. */
+        }
+      }
+      playing = false;
+      connecting = false;
+      playRadio();
+    }
+
+    function playRadio() {
+      if (playing || connecting) return;
+      const station = activeStation();
+      if (!station) return;
+      const needsReload = failed || reconnecting;
+      playbackIntent = true;
+      persistPlaybackIntent();
+      armed = false;
+      disarmGesture();
+      resetRecovery();
+      failed = false;
+      if (needsReload) loadedId = '';
+      startPlayback(false);
+    }
+
     function pauseRadio() {
-      if (!playing && !connecting) {
+      if (!playing && !connecting && !buffering && !reconnecting) {
         if (armed) {
           armed = false;
           playbackIntent = false;
@@ -2283,6 +2941,10 @@ window.__ModuleLoader__.load({
       armed = false;
       disarmGesture();
       clearConnectTimer();
+      clearRetryTimer();
+      clearStallTimer();
+      reconnecting = false;
+      buffering = false;
       if (audio) {
         try {
           audio.pause();
@@ -2292,11 +2954,12 @@ window.__ModuleLoader__.load({
       }
       playing = false;
       connecting = false;
+      failed = false;
       emit();
     }
 
     function toggleRadio() {
-      if (playing || connecting) pauseRadio();
+      if (playing || connecting || buffering || reconnecting) pauseRadio();
       else playRadio();
     }
 
@@ -2306,7 +2969,7 @@ window.__ModuleLoader__.load({
       if (index < 0) index = 0;
       const next = stations[(index + delta + stations.length) % stations.length];
       if (!next) return;
-      const wasLive = playing || connecting || armed;
+      const wasLive = playing || connecting || buffering || reconnecting || armed || failed;
       switchStation(next.id);
       if (!wasLive) playRadio();
     }
@@ -2413,7 +3076,12 @@ window.__ModuleLoader__.load({
     function switchStation(nextId) {
       const next = stations.find((station) => station.id === nextId);
       if (!next || next.id === activeId) return;
-      const wasLive = playing || connecting || armed;
+      const wasLive = playing || connecting || buffering || reconnecting || armed || failed;
+      clearRetryTimer();
+      clearStallTimer();
+      retryCount = 0;
+      reconnecting = false;
+      buffering = false;
       activeId = next.id;
       persistActive();
       armed = false;
@@ -2436,6 +3104,11 @@ window.__ModuleLoader__.load({
     function removeActiveStation() {
       const station = activeStation();
       if (!station || SEED_IDS.has(station.id)) return;
+      clearRetryTimer();
+      clearStallTimer();
+      retryCount = 0;
+      reconnecting = false;
+      buffering = false;
       stations = stations.filter((item) => item.id !== station.id);
       persistStations();
       activeId = DEFAULT_SEED.id;
@@ -2475,6 +3148,9 @@ window.__ModuleLoader__.load({
 
     function shutdown() {
       clearConnectTimer();
+      clearRetryTimer();
+      clearStallTimer();
+      window.removeEventListener('online', onOnline);
       disarmGesture();
       teardownMediaSession();
       const element = audio;
@@ -2482,6 +3158,9 @@ window.__ModuleLoader__.load({
       loadedId = '';
       playing = false;
       connecting = false;
+      buffering = false;
+      reconnecting = false;
+      retryCount = 0;
       failed = false;
       armed = false;
       if (element) {
@@ -2551,14 +3230,21 @@ window.__ModuleLoader__.load({
 
     function RadioButton() {
       const state = useRadio();
+      const [open, setOpen] = useState(false);
+      const [position, setPosition] = useState(null);
+      const splitRef = useRef(null);
+      const menuButtonRef = useRef(null);
+      const popoverRef = useRef(null);
+      const itemRefs = useRef([]);
       const stationName = state.active ? state.active.name : 'Radio';
-      const active = state.playing || state.connecting;
+      const busy = state.connecting || state.buffering || state.reconnecting;
+      const active = state.playing || busy;
       const className =
         'dsh-nr-toggle' +
-        (state.playing
-          ? ' is-playing'
-          : state.connecting
-            ? ' is-connecting'
+        (busy
+          ? ' is-connecting'
+          : state.playing
+            ? ' is-playing'
             : state.failed
               ? ' is-error'
               : state.armed
@@ -2566,30 +3252,258 @@ window.__ModuleLoader__.load({
                 : '');
       const tooltip = state.failed
         ? t('tooltipError')
-        : state.connecting
-          ? format('tooltipConnecting', stationName)
-          : state.playing
-            ? format('tooltipPause', stationName)
-            : state.armed
-              ? format('tooltipArmed', stationName)
-              : format('tooltipPlay', stationName);
+        : state.reconnecting
+          ? format('tooltipReconnecting', stationName)
+          : state.buffering
+            ? format('tooltipBuffering', stationName)
+            : state.connecting
+              ? format('tooltipConnecting', stationName)
+              : state.playing
+                ? format('tooltipPause', stationName)
+                : state.armed
+                  ? format('tooltipArmed', stationName)
+                  : format('tooltipPlay', stationName);
+      const statusLabel = state.failed
+        ? t('stateError')
+        : state.reconnecting
+          ? t('stateReconnecting')
+          : state.buffering
+            ? t('stateBuffering')
+            : state.connecting
+              ? t('stateConnecting')
+              : state.playing
+                ? t('stateOn')
+                : state.armed
+                  ? t('stateArmed')
+                  : t('stateOff');
+
+      useEffect(() => {
+        if (!open) return undefined;
+        const onPointerDown = (event) => {
+          if (splitRef.current && splitRef.current.contains(event.target)) return;
+          closeMenu(false);
+        };
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          closeMenu(true);
+        };
+        const onResize = () => closeMenu(false);
+        document.addEventListener('pointerdown', onPointerDown, true);
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('resize', onResize);
+        const focusTimer = window.setTimeout(() => {
+          const index = Math.max(0, state.stations.findIndex((station) => station.id === state.activeId));
+          const item = itemRefs.current[index] || itemRefs.current[0];
+          if (item && typeof item.focus === 'function') item.focus();
+        }, 0);
+        return () => {
+          document.removeEventListener('pointerdown', onPointerDown, true);
+          window.removeEventListener('keydown', onKeyDown);
+          window.removeEventListener('resize', onResize);
+          window.clearTimeout(focusTimer);
+        };
+      }, [open]);
+
+      function closeMenu(restoreFocus) {
+        setOpen(false);
+        setPosition(null);
+        if (restoreFocus) {
+          window.setTimeout(() => {
+            const button = menuButtonRef.current;
+            if (button && typeof button.focus === 'function') button.focus();
+          }, 0);
+        }
+      }
+
+      function openMenu() {
+        if (open) {
+          closeMenu(true);
+          return;
+        }
+        let next;
+        const button = menuButtonRef.current;
+        if (button && typeof button.getBoundingClientRect === 'function') {
+          const rect = button.getBoundingClientRect();
+          const width = Math.min(264, Math.max(160, window.innerWidth - 16));
+          const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+          const above = rect.top > Math.min(window.innerHeight - rect.bottom, 360) || rect.top > 300;
+          const space = above ? rect.top - 8 : window.innerHeight - rect.bottom - 8;
+          const maxHeight = Math.max(110, Math.min(360, space));
+          next = { left, width, maxHeight };
+          if (above) next.bottom = window.innerHeight - rect.top + 6;
+          else next.top = rect.bottom + 6;
+        } else {
+          next = { left: 8, top: 8, width: 264, maxHeight: 320 };
+        }
+        setPosition(next);
+        setOpen(true);
+      }
+
+      function onListKeyDown(event) {
+        if (
+          event.key !== 'ArrowDown' &&
+          event.key !== 'ArrowUp' &&
+          event.key !== 'Home' &&
+          event.key !== 'End'
+        ) {
+          return;
+        }
+        const items = Array.from(
+          popoverRef.current ? popoverRef.current.querySelectorAll('[data-station-item]') : [],
+        );
+        if (!items.length) return;
+        const current = items.indexOf(document.activeElement);
+        let next = current;
+        if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
+        else if (event.key === 'ArrowUp') next = current <= 0 ? items.length - 1 : current - 1;
+        else if (event.key === 'Home') next = 0;
+        else next = items.length - 1;
+        event.preventDefault();
+        const item = items[next];
+        if (item && typeof item.focus === 'function') item.focus();
+      }
+
+      function renderStation(station, index) {
+        const current = station.id === state.activeId;
+        const hue = stationHue(station);
+        const avatarStyle = {
+          background:
+            'linear-gradient(135deg, hsl(' + hue + ', 72%, 55%), hsl(' + ((hue + 48) % 360) + ', 72%, 42%))',
+        };
+        return h(
+          'button',
+          {
+            key: station.id,
+            ref: (element) => {
+              itemRefs.current[index] = element;
+            },
+            type: 'button',
+            role: 'menuitemradio',
+            'aria-checked': current,
+            'data-station-item': 'true',
+            tabIndex: -1,
+            className: 'dsh-nr-pop-item' + (current ? ' is-current' : ''),
+            title: station.name,
+            onClick: () => {
+              const wasIdle =
+                !playing && !connecting && !buffering && !reconnecting && !armed && !failed;
+              switchStation(station.id);
+              if (wasIdle) playRadio();
+              closeMenu(true);
+            },
+          },
+          h(
+            'span',
+            { className: 'dsh-nr-pop-avatar', style: avatarStyle, 'aria-hidden': 'true' },
+            stationInitials(station.name),
+          ),
+          h('span', { className: 'dsh-nr-pop-name' }, station.name),
+          h(
+            'svg',
+            {
+              className: 'dsh-nr-pop-check',
+              viewBox: '0 0 16 16',
+              width: 12,
+              height: 12,
+              fill: 'none',
+              stroke: 'currentColor',
+              strokeWidth: 1.8,
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round',
+              'aria-hidden': 'true',
+              style: current ? undefined : { opacity: 0 },
+            },
+            h('path', { d: 'M3.5 8.2 6.6 11 12.5 5' }),
+          ),
+        );
+      }
+
       return h(
         React.Fragment,
         null,
         h('style', { key: 'css' }, CSS),
         h(
-          'button',
-          {
-            key: 'button',
-            type: 'button',
-            className,
-            'aria-pressed': active,
-            'aria-busy': state.connecting ? 'true' : undefined,
-            'aria-label': format(active ? 'pause' : 'play', stationName),
-            title: tooltip,
-            onClick: toggleRadio,
-          },
-          h(RadioIcon),
+          'div',
+          { className: 'dsh-nr-split', ref: splitRef },
+          h(
+            'button',
+            {
+              type: 'button',
+              className,
+              'aria-pressed': active,
+              'aria-busy': busy ? 'true' : undefined,
+              'aria-label': format(active ? 'pause' : 'play', stationName),
+              title: tooltip,
+              onClick: () => {
+                if (open) closeMenu(false);
+                toggleRadio();
+              },
+            },
+            h(RadioIcon),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsh-nr-menu' + (open ? ' is-open' : ''),
+              ref: menuButtonRef,
+              'aria-haspopup': 'menu',
+              'aria-expanded': open,
+              'aria-controls': 'dsh-nr-station-menu',
+              'aria-label': t('chooseStation'),
+              title: t('chooseStation'),
+              onClick: openMenu,
+            },
+            h(
+              'svg',
+              {
+                className: 'dsh-nr-chevron',
+                viewBox: '0 0 12 12',
+                width: 10,
+                height: 10,
+                fill: 'none',
+                stroke: 'currentColor',
+                strokeWidth: 1.5,
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+                'aria-hidden': 'true',
+                focusable: 'false',
+              },
+              h('path', { d: 'M3 4.5 6 7.5 9 4.5' }),
+            ),
+          ),
+          open && position
+            ? h(
+                'div',
+                {
+                  className: 'dsh-nr-pop',
+                  style: position,
+                  ref: popoverRef,
+                  onBlur: (event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) closeMenu(false);
+                  },
+                },
+                h(
+                  'div',
+                  { className: 'dsh-nr-pop-head' },
+                  h('span', { className: 'dsh-nr-pop-title' }, t('stations')),
+                  h('span', { className: 'dsh-nr-pop-state' }, statusLabel),
+                ),
+                h(
+                  'div',
+                  {
+                    className: 'dsh-nr-pop-list',
+                    role: 'menu',
+                    id: 'dsh-nr-station-menu',
+                    'aria-label': t('stations'),
+                    onKeyDown: onListKeyDown,
+                  },
+                  state.stations.map(renderStation),
+                ),
+                h('div', { className: 'dsh-nr-pop-foot' }, t('stationFooter')),
+              )
+            : null,
         ),
       );
     }
@@ -2604,16 +3518,28 @@ window.__ModuleLoader__.load({
       const percent = Math.round(state.volume * 100);
       const status = state.failed
         ? t('stateError')
-        : state.connecting
-          ? t('stateConnecting')
-          : state.playing
-            ? t('stateOn')
-            : state.armed
-              ? t('stateArmed')
-              : t('stateOff');
+        : state.reconnecting
+          ? t('stateReconnecting')
+          : state.buffering
+            ? t('stateBuffering')
+            : state.connecting
+              ? t('stateConnecting')
+              : state.playing
+                ? t('stateOn')
+                : state.armed
+                  ? t('stateArmed')
+                  : t('stateOff');
       const stateClass =
         'dsh-nr-row-state' +
-        (state.failed ? ' is-error' : state.playing ? ' is-on' : state.armed ? ' is-armed' : '');
+        (state.failed
+          ? ' is-error'
+          : state.reconnecting || state.buffering || state.connecting
+            ? ' is-buffering'
+            : state.playing
+              ? ' is-on'
+              : state.armed
+                ? ' is-armed'
+                : '');
       const active = state.active || DEFAULT_SEED;
       const hue = stationHue(active);
       const avatarStyle = {
@@ -2733,11 +3659,16 @@ window.__ModuleLoader__.load({
                 },
                 t('openStation'),
               ),
-              state.failed
+              state.failed || state.reconnecting
                 ? h(
                     'button',
-                    { className: 'dsh-nr-retry', type: 'button', onClick: playRadio },
-                    t('retry'),
+                    {
+                      className: 'dsh-nr-retry',
+                      type: 'button',
+                      onClick: retryNow,
+                      title: t(state.reconnecting ? 'retryNow' : 'retry'),
+                    },
+                    t(state.reconnecting ? 'retryNow' : 'retry'),
                   )
                 : null,
               SEED_IDS.has(active.id)
