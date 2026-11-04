@@ -1164,7 +1164,7 @@ window.__ModuleLoader__.load({
     }
 
     function makeMilkyStars(w, h) {
-      const count = Math.min(80, Math.max(24, Math.round(w / 20)));
+      const count = Math.min(100, Math.max(30, Math.round(w / 14)));
       const stars = [];
       const angle = -0.55;
       const cos = Math.cos(angle);
@@ -1181,7 +1181,7 @@ window.__ModuleLoader__.load({
           tw: 0.0004 + Math.random() * 0.0018,
           ph: Math.random() * TAU,
           d: 0.2 + Math.random() * 0.5,
-          a: 0.08 + Math.random() * 0.22,
+          a: 0.12 + Math.random() * 0.23,
         });
       }
       return stars;
@@ -1189,13 +1189,13 @@ window.__ModuleLoader__.load({
 
     function makeClouds(w, h) {
       const clouds = [];
-      for (let index = 0; index < 4; index += 1) {
+      for (let index = 0; index < 3; index += 1) {
         clouds.push({
           x: 0.12 + Math.random() * 0.76,
-          y: HORIZON - 0.08 + Math.random() * 0.16,
-          rx: 0.16 + Math.random() * 0.18,
-          ry: 0.018 + Math.random() * 0.028,
-          a: 0.018 + Math.random() * 0.02,
+          y: HORIZON - 0.12 + Math.random() * 0.23,
+          rx: 0.14 + Math.random() * 0.18,
+          ry: 0.02 + Math.random() * 0.028,
+          a: 0.04 + Math.random() * 0.03,
           sx: 0.000018 + Math.random() * 0.00003,
           ax: 0.008 + Math.random() * 0.016,
           ay: 0.006 + Math.random() * 0.012,
@@ -1295,7 +1295,7 @@ window.__ModuleLoader__.load({
 
         function drawMilkyWay(sky) {
           if (!sky || sky.star < 0.35) return;
-          const bandAlpha = 0.032 * sky.star;
+          const bandAlpha = 0.06 * sky.star;
           g.save();
           g.globalCompositeOperation = 'lighter';
           g.translate(w * 0.5, h * 0.43);
@@ -1311,7 +1311,7 @@ window.__ModuleLoader__.load({
 
         function drawClouds(now, px, py, sky, light) {
           if (!sky || !clouds.length) return;
-          const tint = light ? shadeColor(sky.colors[1], 0.45) : sky.colors[1];
+          const tint = light ? shadeColor(sky.colors[0], 0.45) : sky.colors[0];
           g.save();
           g.globalCompositeOperation = 'source-over';
           for (let index = 0; index < clouds.length; index += 1) {
@@ -1332,7 +1332,7 @@ window.__ModuleLoader__.load({
             g.translate(x, y);
             g.scale((cloud.rx * w) / radius, 1);
             const grad = g.createRadialGradient(0, 0, 0, 0, 0, radius);
-            const alpha = cloud.a * (light ? 1.5 : 1);
+            const alpha = cloud.a * (light ? 1.3 : 1);
             grad.addColorStop(0, 'rgba(' + tint + ',' + alpha + ')');
             grad.addColorStop(0.55, 'rgba(' + tint + ',' + alpha * 0.45 + ')');
             grad.addColorStop(1, 'rgba(' + tint + ',0)');
@@ -1404,12 +1404,12 @@ window.__ModuleLoader__.load({
               g.arc(cx, cy, r * 0.58, 0, TAU);
               g.fill();
             } else {
-              g.fillStyle = 'rgba(255,247,224,' + 0.6 * alpha + ')';
+              g.fillStyle = 'rgba(255,205,130,' + 0.66 * alpha + ')';
               g.beginPath();
               g.arc(cx, cy, r, 0, TAU);
               g.fill();
 
-              g.fillStyle = 'rgba(255,255,250,' + 0.7 * alpha + ')';
+              g.fillStyle = 'rgba(255,236,190,' + 0.72 * alpha + ')';
               g.beginPath();
               g.arc(cx, cy, r * 0.58, 0, TAU);
               g.fill();
@@ -1466,7 +1466,9 @@ window.__ModuleLoader__.load({
                 return {
                   ...blob,
                   c: light ? shadeColor(skyColor, 0.45) : skyColor,
-                  a: light ? DARK.blobs[index].a * lightScale : blob.a * sky.scale,
+                  a: light
+                    ? DARK.blobs[index].a * lightScale
+                    : blob.a * (0.35 + 0.65 * sky.scale) * 1.9,
                 };
               }),
             };
@@ -1491,19 +1493,19 @@ window.__ModuleLoader__.load({
               wash.addColorStop(0.65, 'rgba(' + washColor + ',0.04)');
               wash.addColorStop(1, 'rgba(' + washColor + ',0)');
             } else {
-              wash.addColorStop(0, 'rgba(' + washColor + ',0.08)');
-              wash.addColorStop(0.42, 'rgba(' + washColor + ',0.035)');
-              wash.addColorStop(0.72, 'rgba(' + washColor + ',0.012)');
-              wash.addColorStop(1, 'rgba(3,5,12,0.1)');
+              wash.addColorStop(0, 'rgba(' + washColor + ',0.1)');
+              wash.addColorStop(0.42, 'rgba(' + washColor + ',0.045)');
+              wash.addColorStop(0.72, 'rgba(' + washColor + ',0.018)');
+              wash.addColorStop(1, 'rgba(3,5,12,0.12)');
             }
             g.fillStyle = wash;
             g.fillRect(0, 0, w, h);
 
             // A soft band at the arc's horizon grounds the sun and moon.
             const horizonY = HORIZON * h;
-            const hazeTint = light ? shadeColor(sky.orb.c, 0.45) : sky.orb.c;
+            const hazeTint = light ? shadeColor(sky.colors[0], 0.45) : sky.colors[0];
             const hazeAlpha =
-              (light ? 0.04 : 0.02) + sky.orb.a * (light ? 1 : 0.7);
+              (light ? 0.035 : 0.015) + sky.orb.a * (light ? 0.9 : 0.6);
             const haze = g.createLinearGradient(
               0,
               horizonY - h * 0.18,
@@ -1582,7 +1584,7 @@ window.__ModuleLoader__.load({
               const twinkle = 0.55 + 0.45 * Math.sin(now * star.tw + star.ph);
               const starX = star.x * w + px * star.d * 6;
               const starY = star.y * h + py * star.d * 4;
-              let starAlpha = star.a * twinkle * palette.starAlpha * 0.8;
+              let starAlpha = star.a * twinkle * palette.starAlpha;
               starAlpha *= Math.max(0.18, 1 - Math.max(0, starY / h - HORIZON) * 2.2);
               if (body) {
                 const dx = starX - body.x * w;
@@ -1682,7 +1684,6 @@ window.__ModuleLoader__.load({
         }
 
         function drawStill() {
-          if (!reduced()) return;
           draw(4200, 0);
         }
         requestStaticRedraw = drawStill;
