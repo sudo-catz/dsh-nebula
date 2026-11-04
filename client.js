@@ -1018,7 +1018,7 @@ window.__ModuleLoader__.load({
       const x = body ? Math.round(10 + body.x * 80) : 50;
       const y = body ? Math.round(20 + body.y * 58) : 34;
       const color = isSun ? '255,226,170' : '205,222,255';
-      const glow = isSun ? 0.82 : 0.45 + 0.45 * (body ? body.illumination / 100 : 0);
+      const glow = isSun ? 0.55 : 0.45 + 0.45 * (body ? body.illumination / 100 : 0);
       return (
         'radial-gradient(circle at ' +
         x +
@@ -1171,14 +1171,14 @@ window.__ModuleLoader__.load({
           if (!body || !sky) return;
           const span = Math.max(w, h);
           const isSun = body.kind === 'sun';
-          const r = Math.max(8, Math.min(18, span * (isSun ? 0.0125 : 0.011)));
+          const r = Math.max(7, Math.min(isSun ? 13 : 18, span * (isSun ? 0.0095 : 0.011)));
           const cx = Math.max(18, Math.min(w - 18, body.x * w));
           const cy = Math.max(22, Math.min(h - 22, body.y * h));
           const color = isSun ? sky.orb.c : '208,222,255';
           const lit = Math.max(0, Math.min(1, body.illumination / 100));
-          const alpha = isSun ? 0.72 : 0.55 + 0.45 * lit;
+          const alpha = isSun ? 0.42 : 0.55 + 0.45 * lit;
           const glowRadius = r * (isSun ? 8 : 7);
-          const glowAlpha = isSun ? 0.2 : 0.04 + 0.14 * lit;
+          const glowAlpha = isSun ? 0.09 : 0.04 + 0.14 * lit;
 
           g.globalCompositeOperation = 'lighter';
           const glow = g.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
@@ -1190,21 +1190,15 @@ window.__ModuleLoader__.load({
           g.fillRect(cx - glowRadius, cy - glowRadius, glowRadius * 2, glowRadius * 2);
 
           if (isSun) {
-            g.fillStyle = 'rgba(255,247,224,' + 0.78 * alpha + ')';
+            g.fillStyle = 'rgba(255,247,224,' + 0.6 * alpha + ')';
             g.beginPath();
             g.arc(cx, cy, r, 0, TAU);
             g.fill();
 
-            g.fillStyle = 'rgba(255,255,250,' + 0.9 * alpha + ')';
+            g.fillStyle = 'rgba(255,255,250,' + 0.7 * alpha + ')';
             g.beginPath();
             g.arc(cx, cy, r * 0.58, 0, TAU);
             g.fill();
-
-            g.strokeStyle = 'rgba(' + color + ',' + 0.32 * alpha + ')';
-            g.lineWidth = 1;
-            g.beginPath();
-            g.arc(cx, cy, r + 3, 0, TAU);
-            g.stroke();
           } else {
             // The unlit disc is a faint silhouette; the lit part is cut with
             // two arcs so the phase is a real shape rather than a full disc.
