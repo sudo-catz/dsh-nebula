@@ -69,6 +69,21 @@ link:/absolute/path/to/dsh-nebula
 | Stations, volume, search, country top 10 (clicks/votes/trend), preview, Add station | Settings → General → Nebula Station |
 | Collapse a section | Chevron in the Nebula Station or Nebula Sky header |
 
+## Releases
+
+Version tags trigger `.github/workflows/release.yml`, which publishes to npm with
+provenance and creates the GitHub release. This uses npm Trusted Publishing, so no
+long-lived npm token or one-time password is needed.
+
+One-time npm setup (package → Settings → Trusted Publisher → GitHub Actions):
+
+- Repository: `sudo-catz/dsh-nebula`
+- Workflow: `release.yml`
+- Environment: leave blank
+
+After that, release with a version tag. The workflow verifies that the tag matches
+`package.json`, publishes, and creates the GitHub release.
+
 ## Good to know
 
 - Client-only: no Host work, dependencies, install scripts, or telemetry. Settings live in `localStorage`.
