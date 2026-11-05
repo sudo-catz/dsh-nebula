@@ -97,6 +97,12 @@ window.__ModuleLoader__.load({
       accentActionOn: 'Stop tinting accents with the sky',
       accentActionOff: 'Tint accents with the sky',
       preciseLabel: 'Precise location',
+      locationLabel: 'Location',
+      locationPrecise: 'Precise',
+      locationApproximate: 'Approximate',
+      locationFallback: 'Timezone fallback',
+      locationUnavailable: 'Unavailable',
+      locationLocating: 'Locating…',
       preciseActionOn: 'Use approximate IP location',
       preciseActionOff: 'Use precise browser location',
       ambienceOffStatus: 'Ambience off',
@@ -429,6 +435,14 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
   line-height: 16px;
+}
+.dsh-sky-location {
+  padding: 0 2px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.78;
 }
 .dsh-sky-switch {
   position: relative;
@@ -1358,7 +1372,7 @@ window.__ModuleLoader__.load({
           listeners.delete(force);
         };
       }, []);
-      return { enabled: preciseEnabled, status: preciseStatus };
+      return { enabled: preciseEnabled, status: preciseStatus, geo: preciseGeo };
     }
 
     function useSkyWeather() {
@@ -3332,6 +3346,25 @@ window.__ModuleLoader__.load({
         if (Number.isFinite(temp)) parts.push(temp.toFixed(1) + '°C');
         return parts.join(' · ');
       })();
+      const locationSource =
+        precise.enabled && precise.geo
+          ? t('locationPrecise')
+          : precise.enabled && precise.status === 'requesting'
+            ? t('locationLocating')
+            : geo
+              ? t('locationApproximate')
+              : location
+                ? t('locationFallback')
+                : t('locationUnavailable');
+      const locationText = location
+        ? t('locationLabel') +
+          ' · ' +
+          locationSource +
+          ' · ' +
+          location.lat.toFixed(4) +
+          ', ' +
+          location.lon.toFixed(4)
+        : t('locationLabel') + ' · ' + t('locationUnavailable');
       const sun = location ? sunTimes(location) : null;
       const sunPercent = (value) => Math.min(99.2, Math.max(0.8, (value / 1440) * 100));
 
@@ -3597,6 +3630,7 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { className: 'dsh-sky-weather-summary', 'aria-live': 'polite' }, weatherSummary),
+          h('div', { className: 'dsh-sky-location', 'aria-live': 'polite' }, locationText),
           h('div', { className: 'dsh-sky-hint' }, hint),
         ),
       );
