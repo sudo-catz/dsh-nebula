@@ -27,20 +27,23 @@ window.__ModuleLoader__.load({
     const SKY_KEY = 'dsh.nebula-sky.enabled';
     const AMBIENCE_KEY = 'dsh.nebula-ambience.visible';
     const DEFAULTS_KEY = 'dsh.nebula.defaults.v2';
-    const GEO_KEY = 'dsh.nebula-sky.geo';
-    const GEO_TTL_MS = 24 * 60 * 60 * 1000;
-    const GEO_ENDPOINT = 'https://ipwho.is/';
-    const WEATHER_KEY = 'dsh.nebula-weather';
+    const WEATHER_KEY = 'dsh.nebula-weather.v2';
     const WEATHER_ENABLED_KEY = 'dsh.nebula-weather.enabled';
     const WEATHER_TTL_MS = 15 * 60 * 1000;
     const WEATHER_ENDPOINT = 'https://api.open-meteo.com/v1/forecast';
     const AURORA_KEY = 'dsh.nebula-aurora.kp';
     const AURORA_TTL_MS = 30 * 60 * 1000;
     const AURORA_ENDPOINT = 'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json';
-    const ACCENT_ENABLED_KEY = 'dsh.nebula-accent.enabled';
     const PRECISE_ENABLED_KEY = 'dsh.nebula-weather.precise';
     const PRECISE_GEO_KEY = 'dsh.nebula-weather.precise.geo';
-    const PRECISE_TTL_MS = 6 * 60 * 60 * 1000;
+    const PRECISE_TTL_MS = 15 * 60 * 1000;
+    const PLACE_KEY = 'dsh.nebula-place.v3';
+    const PLACE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+    const PLACE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
+    const CLOCK_ZONE_KEY = 'dsh.nebula-clock-zones.v2';
+    const CLOCK_ZONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+    const CLOCK_ZONE_TAB = 'https://raw.githubusercontent.com/eggert/tz/main/zone.tab';
+    const CLOCK_BACKWARD_TAB = 'https://raw.githubusercontent.com/eggert/tz/main/backward';
     const DEVICE_ZONE = (() => {
       try {
         return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -48,21 +51,13 @@ window.__ModuleLoader__.load({
         return 'UTC';
       }
     })();
-    // If IP geolocation disagrees with the machine timezone, it is usually a
-    // VPN or ISP exit. In that case use a representative city for the machine
-    // timezone so the markers stay aligned with the clock on the strip.
-    const TZ_FALLBACKS = {
-      'Asia/Jakarta': { lat: -6.2088, lon: 106.8456 },
-      'Asia/Kuala_Lumpur': { lat: 3.139, lon: 101.6869 },
-      'Asia/Singapore': { lat: 1.3521, lon: 103.8198 },
-      'Asia/Tokyo': { lat: 35.6762, lon: 139.6503 },
-      'Europe/Paris': { lat: 48.8566, lon: 2.3522 },
-      'Europe/London': { lat: 51.5074, lon: -0.1278 },
-      'Atlantic/Reykjavik': { lat: 64.1466, lon: -21.9426 },
-      'America/New_York': { lat: 40.7128, lon: -74.006 },
-      'America/Los_Angeles': { lat: 34.0522, lon: -118.2437 },
-      'Australia/Sydney': { lat: -33.8688, lon: 151.2093 },
-    };
+    // The device timezone is the default approximate location. The IANA tzdb
+    // principal coordinates for every geographic zone are fetched once and
+    // cached, so there is no hand-maintained city list. A VPN or ISP exit can
+    // put the IP address in another country, so the clock coordinates win and
+    // keep sunrise, moon, and weather aligned with the strip. IP coordinates
+    // are only a fallback when the table cannot be loaded or a zone (such as
+    // Etc/UTC) has no principal location.
     const TAU = Math.PI * 2;
 
     const EN = {
@@ -73,7 +68,9 @@ window.__ModuleLoader__.load({
       themeLabel: 'Nebula theme',
       themeActionOn: 'Turn off the Nebula theme',
       themeActionOff: 'Apply the Nebula theme',
-      ambienceLabel: 'Ambience',
+      ambienceLabel: 'Aurora & stars',
+      skyLabel: 'Sky',
+      skyNeedsAmbience: 'Turn on Aurora & stars to use the Sky switch',
       ambienceActionOn: 'Turn off the ambience',
       ambienceActionOff: 'Turn on the ambience',
       weatherLabel: 'Weather',
@@ -93,20 +90,21 @@ window.__ModuleLoader__.load({
       expandSection: 'Expand section',
       weatherPending: 'Weather —',
       weatherCloud: 'cloud',
-      accentLabel: 'Sky accent',
-      accentActionOn: 'Stop tinting accents with the sky',
-      accentActionOff: 'Tint accents with the sky',
+      weatherVisibility: 'visibility',
+      weatherGusts: 'gusts',
       preciseLabel: 'Precise location',
+      preciseDescription: 'Use your browser’s exact coordinates for weather and sky.',
       locationLabel: 'Location',
       locationPrecise: 'Precise',
-      locationApproximate: 'Approximate',
-      locationFallback: 'Timezone fallback',
+      locationPreciseDenied: 'Precise denied',
+      locationPreciseUnavailable: 'Precise unavailable',
+      locationApproximateClock: 'Approximate (clock)',
       locationUnavailable: 'Unavailable',
       locationLocating: 'Locating…',
-      preciseActionOn: 'Use approximate IP location',
+      preciseActionOn: 'Use approximate location',
       preciseActionOff: 'Use precise browser location',
       ambienceOffStatus: 'Ambience off',
-      skyHintAmbienceOff: 'Ambience is off. Turn it on above to see the sky.',
+      skyHintAmbienceOff: 'Ambience is off. Turn Aurora & stars on to see the sky.',
       skyTitle: 'Nebula Sky',
       skySunrise: 'Sunrise',
       skySunset: 'Sunset',
@@ -128,8 +126,7 @@ window.__ModuleLoader__.load({
       moonInDays: 'in {days} days',
       skyHint: 'Drag the strip to preview any hour. Live returns to the clock.',
       skyHintPreview: 'Previewing {phase} at {time}. Live returns to the clock.',
-      skyHintFixed: 'Fixed palette. Turn Follow the clock on above to follow the day.',
-      skyFollow: 'Follow the clock',
+      skyHintFixed: 'Fixed sky. Turn Sky on to follow the clock.',
       skyStatus: 'Now: {phase} · {time}',
       skyPreviewStatus: 'Preview: {phase} · {time}',
       skyLive: 'Live',
@@ -250,7 +247,7 @@ window.__ModuleLoader__.load({
 }
 .dsh-sky-sun {
   position: absolute;
-  top: -9px;
+  top: -8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -269,7 +266,7 @@ window.__ModuleLoader__.load({
 .dsh-sky-sun::after {
   content: '';
   position: absolute;
-  top: 9px;
+  top: 8px;
   left: 50%;
   width: 1px;
   height: 4px;
@@ -350,7 +347,7 @@ window.__ModuleLoader__.load({
 }
 .dsh-sky-strip {
   position: relative;
-  height: 10px;
+  height: 12px;
   border-radius: 999px;
   cursor: ew-resize;
   touch-action: none;
@@ -380,83 +377,292 @@ window.__ModuleLoader__.load({
   top: -10px;
   bottom: -10px;
 }
-.dsh-sky-strip.is-off { cursor: default; }
+.dsh-sky-strip.is-off {
+  opacity: 0.5;
+  cursor: default;
+}
 .dsh-sky-strip:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 3px;
 }
 .dsh-sky-mark {
   position: absolute;
-  top: -4px;
-  bottom: -4px;
-  width: 3px;
-  margin-left: -1.5px;
-  border-radius: 2px;
+  top: 1px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
   background: #f7f9ff;
-  box-shadow: 0 0 0 1px rgba(3, 5, 12, 0.55), 0 0 8px rgba(255, 255, 255, 0.75);
+  box-shadow:
+    0 0 0 1px rgba(3, 5, 12, 0.55),
+    0 1px 3px rgba(3, 5, 12, 0.45),
+    0 0 8px rgba(255, 255, 255, 0.65);
   transition: left 600ms ease;
+  pointer-events: none;
 }
 .dsh-sky-strip.is-preview .dsh-sky-mark {
   background: var(--dsw-alias-brand-primary);
-  box-shadow: 0 0 0 1px rgba(3, 5, 12, 0.55), 0 0 10px var(--dsw-alias-brand-primary);
+  box-shadow:
+    0 0 0 1px rgba(3, 5, 12, 0.55),
+    0 1px 3px rgba(3, 5, 12, 0.45),
+    0 0 10px var(--dsw-alias-brand-primary);
+  transition: none;
 }
-.dsh-sky-options {
+.dsh-sky-panel {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 12px;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 10px;
   background: var(--dsw-alias-bg-layer-1);
-  overflow: hidden;
 }
-.dsh-sky-option {
+.dsh-sky-now {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.dsh-sky-now-main {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
+  gap: 7px;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
 }
-.dsh-sky-option + .dsh-sky-option {
-  border-top: 0.5px solid var(--dsw-alias-border-l1);
+.dsh-sky-now-glyph {
+  flex: none;
+  color: var(--dsw-alias-brand-primary);
+  opacity: 0.85;
 }
-.dsh-sky-option-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.dsh-sky-now-cond {
+  flex: none;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
-  line-height: 20px;
+  line-height: 18px;
 }
-.dsh-sky-option-label svg {
-  flex: none;
-  opacity: 0.8;
-}
-.dsh-sky-weather-summary {
-  padding: 0 2px;
+.dsh-sky-now-cond.is-muted {
   color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.dsh-sky-now-sep {
+  flex: none;
+  opacity: 0.55;
+}
+.dsh-sky-now-temp {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.dsh-sky-now-details {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dsh-sky-now-place {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
 }
-.dsh-sky-location {
-  padding: 0 2px;
+.dsh-sky-now-pin {
+  flex: none;
+  opacity: 0.7;
+}
+.dsh-sky-now-place-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--dsw-alias-label-secondary);
+}
+.dsh-sky-now-source { flex: none; }
+.dsh-sky-now-coords {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--dsw-alias-label-tertiary);
   font-size: 10px;
-  line-height: 15px;
   font-variant-numeric: tabular-nums;
-  opacity: 0.78;
+}
+.dsh-sky-strip-block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 3px;
+}
+.dsh-sky-strip-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 1px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.dsh-sky-hint {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 15px;
+}
+.dsh-sky-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+.dsh-sky-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.dsh-sky-tile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.dsh-sky-tile:hover {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-sky-tile.is-on {
+  border-color: var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-sky-tile.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.dsh-sky-tile.is-disabled:hover {
+  border-color: var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-sky-tile.is-disabled.is-on {
+  border-color: var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-sky-tile.is-disabled.is-on:hover {
+  border-color: var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-sky-tile-icon {
+  flex: none;
+  opacity: 0.65;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+.dsh-sky-tile.is-on .dsh-sky-tile-icon {
+  opacity: 1;
+  color: var(--dsw-alias-brand-primary);
+}
+.dsh-sky-tile-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-sky-tile:focus-visible,
+.dsh-sky-loc-toggle:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.dsh-sky-loc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.dsh-sky-loc-toggle:hover {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-sky-loc-toggle.is-on {
+  border-color: var(--dsw-alias-border-l3);
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-sky-loc-icon {
+  flex: none;
+  opacity: 0.65;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+.dsh-sky-loc-toggle.is-on .dsh-sky-loc-icon {
+  opacity: 1;
+  color: var(--dsw-alias-brand-primary);
+}
+.dsh-sky-loc-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.dsh-sky-loc-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 16px;
+}
+.dsh-sky-loc-desc {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dsh-sky-switch {
   position: relative;
   flex: none;
-  width: 34px;
-  height: 20px;
+  width: 30px;
+  height: 18px;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 999px;
   background: var(--dsw-alias-bg-layer-2);
-  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l1);
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);
   cursor: pointer;
-  transition: background-color 160ms ease;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 .dsh-sky-switch::before {
   content: '';
@@ -464,7 +670,10 @@ window.__ModuleLoader__.load({
   inset: -6px;
   border-radius: 999px;
 }
-.dsh-sky-switch.is-on { background: var(--dsw-alias-brand-primary); }
+.dsh-sky-switch.is-on {
+  background: var(--dsw-alias-brand-primary);
+  box-shadow: none;
+}
 .dsh-sky-switch:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 2px;
@@ -473,18 +682,19 @@ window.__ModuleLoader__.load({
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: #f7f9ff;
+  background: var(--dsw-alias-switch-thumb, #f7f9ff);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform 160ms ease;
+  transition: transform 160ms ease, background-color 160ms ease;
 }
-.dsh-sky-switch.is-on .dsh-sky-knob { transform: translateX(14px); }
-.dsh-sky-hint {
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
+.dsh-sky-switch.is-on .dsh-sky-knob {
+  transform: translateX(12px);
+  background: var(--dsw-alias-label-primary-foreground, #182238);
+}
+@media (max-width: 640px) {
+  .dsh-sky-tiles { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   .dsh-sky-mark, .dsh-sky-switch, .dsh-sky-knob { transition: none; }
@@ -544,15 +754,29 @@ window.__ModuleLoader__.load({
       }
     })();
 
-    let skyGeo = readGeo();
+    let clockZones = readClockZones();
+    let clockStatus = clockZones
+      ? clockZones[DEVICE_ZONE]
+        ? 'ready'
+        : 'unavailable'
+      : 'pending';
+    // Remove the retired IP fallback cache and the pre-zone.tab table cache.
+    try {
+      window.localStorage.removeItem('dsh.nebula-sky.geo');
+      window.localStorage.removeItem('dsh.nebula-clock-zones.v1');
+      window.localStorage.removeItem('dsh.nebula-place.v2');
+      window.localStorage.removeItem('dsh.nebula-weather');
+    } catch {
+      /* Session-only storage. */
+    }
     let weather = readWeather();
     let weatherEnabled = readWeatherEnabled();
     let auroraKp = readAuroraKp();
-    let accentEnabled = readAccentEnabled();
     let preciseEnabled = readPreciseEnabled();
     let preciseGeo = readPreciseGeo();
     let preciseStatus = preciseEnabled ? (preciseGeo ? 'on' : 'pending') : 'off';
     let preciseRequest = 0;
+    let clockZoneController = null;
 
     // null follows the clock; a number pins the sky to that minute for preview.
     let skyPreview = null;
@@ -563,29 +787,163 @@ window.__ModuleLoader__.load({
       for (const listener of listeners) listener();
     }
 
-    function readGeo() {
+    function readClockZones() {
       try {
-        const parsed = JSON.parse(window.localStorage.getItem(GEO_KEY) || 'null');
+        const parsed = JSON.parse(
+          window.localStorage.getItem(CLOCK_ZONE_KEY) || 'null',
+        );
         if (
           parsed &&
-          Number.isFinite(parsed.lat) &&
-          Number.isFinite(parsed.lon) &&
-          parsed.lat >= -90 &&
-          parsed.lat <= 90 &&
-          parsed.lon >= -180 &&
-          parsed.lon <= 180
+          Number.isFinite(parsed.ts) &&
+          Date.now() - parsed.ts < CLOCK_ZONE_TTL_MS &&
+          parsed.zones &&
+          typeof parsed.zones === 'object'
         ) {
-          return {
-            lat: parsed.lat,
-            lon: parsed.lon,
-            tz: typeof parsed.tz === 'string' ? parsed.tz : '',
-            ts: Number(parsed.ts) || 0,
-          };
+          const zones = {};
+          for (const [zone, coord] of Object.entries(parsed.zones)) {
+            if (
+              coord &&
+              Number.isFinite(coord.lat) &&
+              Number.isFinite(coord.lon) &&
+              coord.lat >= -90 &&
+              coord.lat <= 90 &&
+              coord.lon >= -180 &&
+              coord.lon <= 180
+            ) {
+              zones[zone] = { lat: coord.lat, lon: coord.lon };
+            }
+          }
+          if (Object.keys(zones).length) return zones;
         }
       } catch {
-        /* No cached location. */
+        /* Rebuild the table when the cache is unreadable. */
       }
       return null;
+    }
+
+    function persistClockZones(zones) {
+      try {
+        window.localStorage.setItem(
+          CLOCK_ZONE_KEY,
+          JSON.stringify({ ts: Date.now(), zones }),
+        );
+      } catch {
+        /* Session-only cache. */
+      }
+    }
+
+    function parseZoneCoordinate(value) {
+      const match =
+        /^([+-])(\d{2})(\d{2})(\d{2})?([+-])(\d{3})(\d{2})(\d{2})?$/.exec(
+          String(value || '').trim(),
+        );
+      if (!match) return null;
+      const lat =
+        (Number(match[2]) + Number(match[3]) / 60 + Number(match[4] || 0) / 3600) *
+        (match[1] === '-' ? -1 : 1);
+      const lon =
+        (Number(match[6]) + Number(match[7]) / 60 + Number(match[8] || 0) / 3600) *
+        (match[5] === '-' ? -1 : 1);
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon) ||
+        lat < -90 ||
+        lat > 90 ||
+        lon < -180 ||
+        lon > 180
+      ) {
+        return null;
+      }
+      return { lat, lon };
+    }
+
+    function parseClockZones(zoneText, backwardText) {
+      const zones = {};
+      for (const line of String(zoneText || '').split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const fields = trimmed.split('\t');
+        if (fields.length < 3) continue;
+        const zone = fields[2].trim();
+        const coordinate = parseZoneCoordinate(fields[1]);
+        if (zone && coordinate) zones[zone] = coordinate;
+      }
+      const links = [];
+      for (const line of String(backwardText || '').split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const fields = trimmed.split(/\s+/);
+        if (fields.length >= 3 && fields[0] === 'Link') {
+          links.push([fields[2], fields[1]]);
+        }
+      }
+      let changed = true;
+      let passes = 0;
+      while (changed && passes < 8) {
+        changed = false;
+        passes += 1;
+        for (const [alias, target] of links) {
+          if (!zones[alias] && zones[target]) {
+            zones[alias] = zones[target];
+            changed = true;
+          }
+        }
+      }
+      return zones;
+    }
+
+    function refreshClockZones() {
+      if (clockStatus === 'ready') return null;
+      if (typeof window.fetch !== 'function') {
+        clockStatus = 'unavailable';
+        return null;
+      }
+      if (clockZoneController) clockZoneController.abort();
+      const controller =
+        typeof AbortController === 'function' ? new AbortController() : null;
+      clockZoneController = controller;
+      const timer = window.setTimeout(() => {
+        if (controller) controller.abort();
+      }, 12000);
+      const request = (url) =>
+        window
+          .fetch(url, {
+            cache: 'no-store',
+            credentials: 'omit',
+            signal: controller ? controller.signal : undefined,
+          })
+          .then((response) => (response.ok ? response.text() : ''));
+      Promise.all([
+        request(CLOCK_ZONE_TAB),
+        request(CLOCK_BACKWARD_TAB).catch(() => ''),
+      ])
+        .then(([zoneText, backwardText]) => {
+          if (clockZoneController !== controller) return;
+          const zones = parseClockZones(zoneText, backwardText);
+          if (!zones || !Object.keys(zones).length) {
+            throw new Error('Nebula: no timezone coordinates');
+          }
+          clockZones = zones;
+          clockStatus = zones[DEVICE_ZONE] ? 'ready' : 'unavailable';
+          persistClockZones(zones);
+          emit();
+          requestStaticRedraw();
+          if (weatherEnabled) refreshWeather(resolveSkyLocation());
+        })
+        .catch(() => {
+          if (clockZoneController !== controller) return;
+          clockStatus = 'unavailable';
+          emit();
+        })
+        .finally(() => {
+          window.clearTimeout(timer);
+          if (clockZoneController === controller) clockZoneController = null;
+        });
+      return controller;
+    }
+
+    function ensureApproximateLocation() {
+      if (clockStatus === 'pending') refreshClockZones();
     }
 
     function readWeather() {
@@ -605,6 +963,10 @@ window.__ModuleLoader__.load({
             temp: Number.isFinite(Number(parsed.temp)) ? Number(parsed.temp) : null,
             windSpeed: Number.isFinite(Number(parsed.windSpeed)) ? Number(parsed.windSpeed) : 0,
             windDir: Number.isFinite(Number(parsed.windDir)) ? Number(parsed.windDir) : 0,
+            feels: Number.isFinite(Number(parsed.feels)) ? Number(parsed.feels) : null,
+            humidity: Number.isFinite(Number(parsed.humidity))
+              ? Math.min(100, Math.max(0, Number(parsed.humidity)))
+              : null,
             nextPrecip: Number.isFinite(Number(parsed.nextPrecip)) ? Number(parsed.nextPrecip) : 0,
             rain: Number.isFinite(Number(parsed.rain)) ? Number(parsed.rain) : 0,
             showers: Number.isFinite(Number(parsed.showers)) ? Number(parsed.showers) : 0,
@@ -630,15 +992,6 @@ window.__ModuleLoader__.load({
     function readWeatherEnabled() {
       try {
         const raw = window.localStorage.getItem(WEATHER_ENABLED_KEY);
-        return raw === null ? true : raw !== '0';
-      } catch {
-        return true;
-      }
-    }
-
-    function readAccentEnabled() {
-      try {
-        const raw = window.localStorage.getItem(ACCENT_ENABLED_KEY);
         return raw === null ? true : raw !== '0';
       } catch {
         return true;
@@ -677,6 +1030,68 @@ window.__ModuleLoader__.load({
       return null;
     }
 
+    function readPlaceCache(key) {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(PLACE_KEY) || 'null');
+        if (
+          parsed &&
+          parsed.key === key &&
+          typeof parsed.label === 'string' &&
+          Date.now() - (Number(parsed.ts) || 0) < PLACE_TTL_MS
+        ) {
+          return parsed.label;
+        }
+      } catch {
+        /* No cached place. */
+      }
+      return '';
+    }
+
+    function persistPlaceCache(key, label) {
+      try {
+        window.localStorage.setItem(
+          PLACE_KEY,
+          JSON.stringify({ key, label, ts: Date.now() }),
+        );
+      } catch {
+        /* Session-only cache. */
+      }
+    }
+
+    function placeFromReverse(data) {
+      const address = data && data.address;
+      if (!address) return '';
+      // Prefer the city; fall back to the place name at the zone's center, then
+      // to the next administrative level if Nominatim has no city.
+      const local = String(
+        address.city ||
+          address.town ||
+          address.village ||
+          address.municipality ||
+          data.name ||
+          address.city_district ||
+          address.district ||
+          address.state ||
+          address.region ||
+          address.county ||
+          '',
+      )
+        .replace(/^Special Capital Region of /i, '')
+        .replace(/^Daerah Khusus Ibukota /i, '')
+        .trim();
+      const country = String(address.country || '').trim();
+      const parts = [];
+      const seen = new Set();
+      for (const value of [local, country]) {
+        const key = value.toLowerCase();
+        if (value && !seen.has(key)) {
+          parts.push(value);
+          seen.add(key);
+        }
+      }
+      return parts.join(', ');
+    }
+
     function requestPreciseLocation() {
       if (!preciseEnabled) return;
       const request = ++preciseRequest;
@@ -687,12 +1102,14 @@ window.__ModuleLoader__.load({
       ) {
         preciseStatus = 'unavailable';
         preciseEnabled = false;
+        preciseGeo = null;
         try {
           window.localStorage.setItem(PRECISE_ENABLED_KEY, '0');
+          window.localStorage.removeItem(PRECISE_GEO_KEY);
         } catch {
           /* Session only. */
         }
-        refreshWeather(resolveSkyLocation(skyGeo));
+        refreshWeather(resolveSkyLocation());
         requestStaticRedraw();
         emit();
         return;
@@ -723,7 +1140,7 @@ window.__ModuleLoader__.load({
           } catch {
             /* Session only. */
           }
-          refreshWeather(resolveSkyLocation(skyGeo));
+          refreshWeather(resolveSkyLocation());
           requestStaticRedraw();
           emit();
         },
@@ -731,16 +1148,18 @@ window.__ModuleLoader__.load({
           if (request !== preciseRequest) return;
           preciseStatus = error && error.code === 1 ? 'denied' : 'unavailable';
           preciseEnabled = false;
+          preciseGeo = null;
           try {
             window.localStorage.setItem(PRECISE_ENABLED_KEY, '0');
+            window.localStorage.removeItem(PRECISE_GEO_KEY);
           } catch {
             /* Session only. */
           }
-          refreshWeather(resolveSkyLocation(skyGeo));
+          refreshWeather(resolveSkyLocation());
           requestStaticRedraw();
           emit();
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 600000 },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
       );
     }
 
@@ -771,6 +1190,26 @@ window.__ModuleLoader__.load({
       return '#' + channel(0) + channel(1) + channel(2);
     }
 
+    function resetPreciseLocation() {
+      preciseRequest += 1;
+      preciseGeo = null;
+      try {
+        window.localStorage.removeItem(PRECISE_GEO_KEY);
+      } catch {
+        /* Session-only storage. */
+      }
+      if (!preciseEnabled) {
+        preciseStatus = 'off';
+        ensureApproximateLocation();
+        refreshWeather(resolveSkyLocation());
+        requestStaticRedraw();
+        emit();
+        return;
+      }
+      preciseStatus = 'pending';
+      requestPreciseLocation();
+    }
+
     function accentForMinute(minute) {
       const stamp = ((minute % 1440) + 1440) % 1440;
       for (let index = 0; index < ACCENT_KEYFRAMES.length - 1; index += 1) {
@@ -786,7 +1225,7 @@ window.__ModuleLoader__.load({
 
     function applySkyAccent() {
       const minute = skyPreview === null ? minuteOfDay() : skyPreview;
-      themeApi.setAccent(accentEnabled ? accentForMinute(minute) : null);
+      themeApi.setAccent(accentForMinute(minute));
     }
 
     function readAuroraKp() {
@@ -1010,7 +1449,7 @@ window.__ModuleLoader__.load({
         encodeURIComponent(location.lat.toFixed(4)) +
         '&longitude=' +
         encodeURIComponent(location.lon.toFixed(4)) +
-        '&current=weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,visibility,wind_speed_10m,wind_gusts_10m,wind_direction_10m,cape,temperature_2m' +
+        '&current=weather_code,cloud_cover,precipitation,rain,showers,snowfall,precipitation_probability,visibility,wind_speed_10m,wind_gusts_10m,wind_direction_10m,cape,temperature_2m,apparent_temperature,relative_humidity_2m' +
         '&minutely_15=precipitation,rain,snowfall,weather_code' +
         '&timezone=auto&forecast_days=1';
       window
@@ -1074,6 +1513,12 @@ window.__ModuleLoader__.load({
             temp: Number.isFinite(Number(current.temperature_2m))
               ? Number(current.temperature_2m)
               : null,
+            feels: Number.isFinite(Number(current.apparent_temperature))
+              ? Number(current.apparent_temperature)
+              : null,
+            humidity: Number.isFinite(Number(current.relative_humidity_2m))
+              ? Math.min(100, Math.max(0, Number(current.relative_humidity_2m)))
+              : null,
             windSpeed: Number.isFinite(Number(current.wind_speed_10m))
               ? Math.max(0, Number(current.wind_speed_10m))
               : 0,
@@ -1106,75 +1551,13 @@ window.__ModuleLoader__.load({
       return controller;
     }
 
-    let geoController = null;
-    function refreshGeo() {
-      if (preciseEnabled && preciseGeo) return null;
-      const now = Date.now();
-      if (skyGeo && skyGeo.tz && now - skyGeo.ts < GEO_TTL_MS) return null;
-      if (typeof window.fetch !== 'function') return null;
-      if (geoController) geoController.abort();
-      const controller = typeof AbortController === 'function' ? new AbortController() : null;
-      geoController = controller;
-      const timer = window.setTimeout(() => {
-        if (controller) controller.abort();
-      }, 8000);
-      window
-        .fetch(GEO_ENDPOINT, {
-          cache: 'no-store',
-          credentials: 'omit',
-          signal: controller ? controller.signal : undefined,
-        })
-        .then((response) => (response.ok ? response.json() : null))
-        .then((data) => {
-          if (geoController !== controller) return;
-          const lat = Number(data && data.latitude);
-          const lon = Number(data && data.longitude);
-          if (
-            !Number.isFinite(lat) ||
-            !Number.isFinite(lon) ||
-            lat < -90 ||
-            lat > 90 ||
-            lon < -180 ||
-            lon > 180
-          ) {
-            return;
-          }
-          const tz =
-            data && data.timezone
-              ? typeof data.timezone === 'string'
-                ? data.timezone
-                : data.timezone.id || ''
-              : '';
-          skyGeo = { lat, lon, tz, ts: Date.now() };
-          try {
-            window.localStorage.setItem(GEO_KEY, JSON.stringify(skyGeo));
-          } catch {
-            /* Private mode: the session location still applies. */
-          }
-          emit();
-          requestStaticRedraw();
-          if (weatherEnabled) refreshWeather(resolveSkyLocation(skyGeo));
-        })
-        .catch(() => {
-          /* The sun markers stay hidden when the lookup fails. */
-        })
-        .finally(() => {
-          window.clearTimeout(timer);
-          if (geoController === controller) geoController = null;
-        });
-      return controller;
-    }
-
-    function resolveSkyLocation(geo) {
+    function resolveSkyLocation() {
       if (preciseEnabled && preciseGeo) {
-        return { lat: preciseGeo.lat, lon: preciseGeo.lon };
+        return { lat: preciseGeo.lat, lon: preciseGeo.lon, source: 'precise' };
       }
-      const fallback = TZ_FALLBACKS[DEVICE_ZONE] || null;
-      if (!geo) return fallback;
-      if (geo.tz && geo.tz === DEVICE_ZONE) return { lat: geo.lat, lon: geo.lon };
-      if (fallback) return fallback;
-      if (!geo.tz) return { lat: geo.lat, lon: geo.lon };
-      return null;
+      if (!clockZones) return null;
+      const clock = clockZones[DEVICE_ZONE];
+      return clock ? { lat: clock.lat, lon: clock.lon, source: 'clock' } : null;
     }
 
     function setPreciseEnabled(next) {
@@ -1187,33 +1570,27 @@ window.__ModuleLoader__.load({
       }
       if (!next) {
         preciseRequest += 1;
+        preciseGeo = null;
+        try {
+          window.localStorage.removeItem(PRECISE_GEO_KEY);
+        } catch {
+          /* Session-only storage. */
+        }
         preciseStatus = 'off';
-        refreshGeo();
-        refreshWeather(resolveSkyLocation(skyGeo));
+        ensureApproximateLocation();
+        refreshWeather(resolveSkyLocation());
         requestStaticRedraw();
         emit();
         return;
       }
       if (preciseGeo && Date.now() - preciseGeo.ts < PRECISE_TTL_MS) {
         preciseStatus = 'on';
-        refreshWeather(resolveSkyLocation(skyGeo));
+        refreshWeather(resolveSkyLocation());
         requestStaticRedraw();
         emit();
         return;
       }
       requestPreciseLocation();
-    }
-
-    function setAccentEnabled(next) {
-      if (accentEnabled === next) return;
-      accentEnabled = next;
-      try {
-        window.localStorage.setItem(ACCENT_ENABLED_KEY, next ? '1' : '0');
-      } catch {
-        /* Private mode: the session preference still applies. */
-      }
-      applySkyAccent();
-      emit();
     }
 
     function setWeatherEnabled(next) {
@@ -1225,7 +1602,7 @@ window.__ModuleLoader__.load({
         /* Private mode: the session preference still applies. */
       }
       if (next) {
-        refreshWeather(resolveSkyLocation(skyGeo));
+        refreshWeather(resolveSkyLocation());
       } else if (weatherController) {
         weatherController.abort();
       }
@@ -1331,17 +1708,6 @@ window.__ModuleLoader__.load({
       return skyPreview;
     }
 
-    function useSkyGeo() {
-      const [, force] = useReducer((version) => version + 1, 0);
-      useEffect(() => {
-        listeners.add(force);
-        return () => {
-          listeners.delete(force);
-        };
-      }, []);
-      return skyGeo;
-    }
-
     function useWeatherEnabled() {
       const [, force] = useReducer((version) => version + 1, 0);
       useEffect(() => {
@@ -1351,17 +1717,6 @@ window.__ModuleLoader__.load({
         };
       }, []);
       return weatherEnabled;
-    }
-
-    function useAccentEnabled() {
-      const [, force] = useReducer((version) => version + 1, 0);
-      useEffect(() => {
-        listeners.add(force);
-        return () => {
-          listeners.delete(force);
-        };
-      }, []);
-      return accentEnabled;
     }
 
     function usePreciseLocation() {
@@ -1975,7 +2330,7 @@ window.__ModuleLoader__.load({
     }
 
     function currentCelestial() {
-      const location = resolveSkyLocation(skyGeo);
+      const location = resolveSkyLocation();
       if (skyPreview === null) return celestialAt(secondsOfDay() / 60, location, new Date());
       return celestialAt(skyPreview, location, dateAtPreviewMinute(skyPreview));
     }
@@ -3075,11 +3430,12 @@ window.__ModuleLoader__.load({
 
     function NebulaToggle() {
       const on = useSkyEnabled();
+      const ambienceOn = useAmbienceEnabled();
       const minute = useSkyMinute();
-      const geo = useSkyGeo();
-      const location = resolveSkyLocation(geo);
+      const location = resolveSkyLocation();
       const sky = skyAt(minute);
       const body = celestialAt(minute, location);
+      if (!ambienceOn) return null;
       const skyBackground = on ? skyButtonBackground(sky, body) : 'none';
       const action = t(on ? 'actionOn' : 'actionOff');
       const hint = t(on ? 'toggleOn' : 'toggleOff');
@@ -3160,7 +3516,7 @@ window.__ModuleLoader__.load({
 
     function WeatherGlyph({ kind }) {
       const common = {
-        className: 'dsh-weather-glyph',
+        className: 'dsh-sky-now-glyph',
         viewBox: '0 0 16 16',
         width: 14,
         height: 14,
@@ -3176,24 +3532,34 @@ window.__ModuleLoader__.load({
         return h(
           'svg',
           common,
-          h('circle', { cx: 8, cy: 8, r: 2.6, fill: 'currentColor', stroke: 'none' }),
-          h('path', { d: 'M8 1.2v1.5M8 13.3v1.5M1.2 8h1.5M13.3 8h1.5M3.2 3.2l1 1M11.8 11.8l1 1M12.8 3.2l-1 1M4.2 11.8l-1 1' }),
+          h('circle', { cx: 8, cy: 8, r: 2.4, fill: 'currentColor', stroke: 'none' }),
+          h('path', {
+            d: 'M8 1.4v1.3M8 13.3v1.3M1.4 8h1.3M13.3 8h1.3M3.3 3.3l.9.9M11.8 11.8l.9.9M12.7 3.3l-.9.9M4.2 11.8l-.9.9',
+          }),
         );
       }
       if (kind === 'fog') {
-        return h('svg', common, h('path', { d: 'M2.2 6.2h11.6M1.4 8.9h13.2M3 11.6h10' }));
+        return h('svg', common, h('path', { d: 'M2.2 5.8h11.6M1.4 8.5h13.2M3 11.2h10' }));
       }
       const cloud = h('path', {
-        d: 'M4.4 10.9h7.2a2 2 0 0 0 .1-4 3 3 0 0 0-5.7-1 2.6 2.6 0 0 0-1.6 5Z',
+        d: 'M4.4 10.7h7.2a2 2 0 0 0 .1-4 3 3 0 0 0-5.7-1 2.6 2.6 0 0 0-1.6 5Z',
         fill: kind === 'overcast' ? 'currentColor' : 'none',
-        fillOpacity: kind === 'overcast' ? 0.18 : 0,
+        fillOpacity: kind === 'overcast' ? 0.16 : 0,
       });
+      if (kind === 'cloudy') {
+        return h(
+          'svg',
+          common,
+          h('circle', { cx: 10.8, cy: 4.9, r: 2.2 }),
+          h('path', { d: 'M3.1 11.4h7.2a2 2 0 0 0 .1-4 3 3 0 0 0-5.7-1 2.6 2.6 0 0 0-1.6 5Z' }),
+        );
+      }
       if (kind === 'rain') {
         return h(
           'svg',
           common,
           cloud,
-          h('path', { d: 'M5.8 12.4 5.3 14M9.8 12.4 9.3 14' }),
+          h('path', { d: 'M5.9 12.4 5.4 14M9.9 12.4 9.4 14' }),
         );
       }
       if (kind === 'snow') {
@@ -3201,7 +3567,7 @@ window.__ModuleLoader__.load({
           'svg',
           common,
           cloud,
-          h('path', { d: 'M6 12.6v2M5 13.6h2M10.4 12.6v2M9.4 13.6h2' }),
+          h('path', { d: 'M6 13.2v1.6M5.2 14h1.6M10.2 13.2v1.6M9.4 14h1.6' }),
         );
       }
       if (kind === 'storm') {
@@ -3209,7 +3575,7 @@ window.__ModuleLoader__.load({
           'svg',
           common,
           cloud,
-          h('path', { d: 'M8.4 11.2 7 13.7h1.5l-.8 2' }),
+          h('path', { d: 'M8.6 11.3 7.1 13.8h1.5l-.8 1.7' }),
         );
       }
       return h('svg', common, cloud);
@@ -3221,11 +3587,11 @@ window.__ModuleLoader__.load({
       const weatherOn = useWeatherEnabled();
       const currentWeather = useSkyWeather();
       const precise = usePreciseLocation();
-      const accentOn = useAccentEnabled();
       const themeOn = themeApi.useEnabled();
       const preview = useSkyPreview();
-      const geo = useSkyGeo();
-      const location = resolveSkyLocation(geo);
+      const location = resolveSkyLocation();
+      const locationPending =
+        !precise.enabled && !location && clockStatus === 'pending';
       const southern = !!(location && location.lat < 0);
       const [minute, setMinute] = useState(() => minuteOfDay());
       const [expanded, setExpanded] = useState(() => {
@@ -3235,6 +3601,10 @@ window.__ModuleLoader__.load({
           return true;
         }
       });
+      const [placeName, setPlaceName] = useState('');
+      const locationKey = location
+        ? location.lat.toFixed(3) + ',' + location.lon.toFixed(3)
+        : '';
       const dragging = useRef(false);
       const stripRef = useRef(null);
 
@@ -3252,6 +3622,52 @@ window.__ModuleLoader__.load({
           document.removeEventListener('visibilitychange', sync);
         };
       }, []);
+
+      useEffect(() => {
+        if (!locationKey) {
+          setPlaceName('');
+          return undefined;
+        }
+        const cached = readPlaceCache(locationKey);
+        if (cached) {
+          setPlaceName(cached);
+          return undefined;
+        }
+        setPlaceName('');
+        if (typeof window.fetch !== 'function') return undefined;
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let active = true;
+        const params = new URLSearchParams({
+          format: 'jsonv2',
+          lat: String(location.lat),
+          lon: String(location.lon),
+          zoom: '10',
+          addressdetails: '1',
+          'accept-language': 'en',
+        });
+        window
+          .fetch(PLACE_ENDPOINT + '?' + params.toString(), {
+            cache: 'no-store',
+            credentials: 'omit',
+            headers: { Accept: 'application/json' },
+            signal: controller ? controller.signal : undefined,
+          })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data) => {
+            if (!active) return;
+            const label = placeFromReverse(data);
+            if (!label) return;
+            setPlaceName(label);
+            persistPlaceCache(locationKey, label);
+          })
+          .catch(() => {
+            /* Coordinates remain available without a label. */
+          });
+        return () => {
+          active = false;
+          if (controller) controller.abort();
+        };
+      }, [locationKey]);
 
       const live = preview === null;
       const shownMinute = live ? minute : preview;
@@ -3303,68 +3719,92 @@ window.__ModuleLoader__.load({
         moon.illumination +
         '%' +
         (moonEvent ? ' · ' + moonEvent : '');
-      const weatherKindNow = currentWeather ? effectiveWeatherKind(currentWeather) : null;
-      const weatherLabel = h(
-        React.Fragment,
-        null,
-        weatherOn && weatherKindNow ? h(WeatherGlyph, { kind: weatherKindNow }) : null,
-        weatherOn && weatherKindNow ? ' ' : null,
-        t('weatherLabel'),
-      );
-      const weatherSummary = (() => {
-        if (!weatherOn) return t('weatherOff');
-        if (!currentWeather) return t('weatherPending');
+      const weatherNow = (() => {
+        if (!weatherOn) return { state: 'off', label: t('weatherOff') };
+        if (!currentWeather) return { state: 'pending', label: t('weatherPending') };
         const kind = effectiveWeatherKind(currentWeather);
-        const parts = [t(effectiveConditionKey(currentWeather))];
         const cloud = Number(currentWeather.cloud);
         const temp = Number(currentWeather.temp);
-        const probability = Number(currentWeather.probability);
+        const feels = Number(currentWeather.feels);
+        const humidity = Number(currentWeather.humidity);
+        const windSpeed = Number(currentWeather.windSpeed);
         const visibility = Number(currentWeather.visibility);
         const gust = Number(currentWeather.gust);
         const rainAmount =
           Math.max(0, Number(currentWeather.rain) || 0) +
-          Math.max(0, Number(currentWeather.showers) || 0) ||
+            Math.max(0, Number(currentWeather.showers) || 0) ||
           Math.max(0, Number(currentWeather.precip) || 0);
         const snowAmount = Math.max(0, Number(currentWeather.snowfall) || 0);
+        const parts = [];
         if (kind === 'fog') {
           if (Number.isFinite(visibility) && visibility > 0) {
-            parts.push((visibility / 1000).toFixed(visibility < 10000 ? 1 : 0) + ' km');
+            parts.push(
+              (visibility / 1000).toFixed(visibility < 10000 ? 1 : 0) +
+                ' km ' +
+                t('weatherVisibility'),
+            );
           }
         } else if (kind === 'rain' || kind === 'storm') {
-          if (rainAmount > 0) parts.push(rainAmount.toFixed(2) + ' mm');
-          if (Number.isFinite(probability)) parts.push(Math.round(probability) + '%');
+          // The condition already says it is raining. Only a substantial
+          // amount adds information; trace drizzle does not.
+          if (rainAmount >= 2.5) parts.push(rainAmount.toFixed(1) + ' mm');
         } else if (kind === 'snow') {
-          if (snowAmount > 0) parts.push(snowAmount.toFixed(1) + ' cm');
-          if (Number.isFinite(probability)) parts.push(Math.round(probability) + '%');
+          if (snowAmount >= 1) parts.push(snowAmount.toFixed(1) + ' cm');
         }
-        if (kind !== 'fog' && Number.isFinite(cloud)) {
+        // A percentage of cloud is only useful when the condition does not
+        // already say overcast/rain. Precipitation probability is omitted
+        // because the current condition already tells that story.
+        if (kind === 'cloudy' && Number.isFinite(cloud)) {
           parts.push(Math.round(cloud) + '% ' + t('weatherCloud'));
         }
-        if (kind === 'storm' && Number.isFinite(gust) && gust > 0) {
-          parts.push(Math.round(gust) + ' km/h');
+        if (kind === 'storm' && Number.isFinite(gust) && gust >= 30) {
+          parts.push(t('weatherGusts') + ' ' + Math.round(gust) + ' km/h');
         }
-        if (Number.isFinite(temp)) parts.push(temp.toFixed(1) + '°C');
-        return parts.join(' · ');
+        if (
+          Number.isFinite(feels) &&
+          Number.isFinite(temp) &&
+          Math.abs(feels - temp) >= 1.5
+        ) {
+          parts.push('feels ' + Math.round(feels) + '°C');
+        }
+        if (Number.isFinite(humidity)) {
+          parts.push(Math.round(humidity) + '% humidity');
+        }
+        if (Number.isFinite(windSpeed) && windSpeed >= 10) {
+          parts.push(Math.round(windSpeed) + ' km/h wind');
+        }
+        return {
+          state: 'on',
+          kind,
+          label: t(effectiveConditionKey(currentWeather)),
+          temp: Number.isFinite(temp) ? temp.toFixed(1) + '°C' : '',
+          details: parts.slice(0, 4).join(' · '),
+        };
       })();
-      const locationSource =
-        precise.enabled && precise.geo
+      const locationSource = precise.enabled
+        ? precise.geo
           ? t('locationPrecise')
-          : precise.enabled && precise.status === 'requesting'
+          : precise.status === 'requesting' || precise.status === 'pending'
             ? t('locationLocating')
-            : geo
-              ? t('locationApproximate')
-              : location
-                ? t('locationFallback')
-                : t('locationUnavailable');
-      const locationText = location
-        ? t('locationLabel') +
+            : precise.status === 'denied'
+              ? t('locationPreciseDenied')
+              : t('locationPreciseUnavailable')
+        : locationPending
+          ? t('locationLocating')
+          : location && location.source === 'clock'
+            ? t('locationApproximateClock')
+            : '';
+      const coordinateText = location
+        ? location.lat.toFixed(4) + ', ' + location.lon.toFixed(4)
+        : '';
+      const placeText = location ? placeName : '';
+      const locationTitle = location
+        ? [t('locationLabel'), placeText, locationSource, coordinateText]
+            .filter(Boolean)
+            .join(' · ')
+        : t('locationLabel') +
           ' · ' +
-          locationSource +
-          ' · ' +
-          location.lat.toFixed(4) +
-          ', ' +
-          location.lon.toFixed(4)
-        : t('locationLabel') + ' · ' + t('locationUnavailable');
+          (locationPending ? t('locationLocating') : t('locationUnavailable'));
       const sun = location ? sunTimes(location) : null;
       const sunPercent = (value) => Math.min(99.2, Math.max(0.8, (value / 1440) * 100));
 
@@ -3426,25 +3866,191 @@ window.__ModuleLoader__.load({
         setSkyPreview(Math.min(1439, Math.max(0, next)));
       };
 
-      const option = (key, label, on, toggle, actionOn, actionOff) =>
+      const glyph = (kind, className, size) => {
+        const common = {
+          className,
+          viewBox: '0 0 16 16',
+          width: size,
+          height: size,
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.3,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          'aria-hidden': 'true',
+          focusable: 'false',
+        };
+        if (kind === 'sky') {
+          return h(
+            'svg',
+            common,
+            h('circle', { cx: 8, cy: 8, r: 2.5 }),
+            h('path', {
+              d: 'M8 1.2v1.5M8 13.3v1.5M1.2 8h1.5M13.3 8h1.5M3.2 3.2l1 1M11.8 11.8l1 1M12.8 3.2l-1 1M4.2 11.8l-1 1',
+            }),
+          );
+        }
+        if (kind === 'weather') {
+          return h('svg', common, h('path', {
+            d: 'M4.4 10.9h7.2a2 2 0 0 0 .1-4 3 3 0 0 0-5.7-1 2.6 2.6 0 0 0-1.6 5Z',
+          }));
+        }
+        if (kind === 'theme') {
+          return h(
+            'svg',
+            common,
+            h('circle', { cx: 8, cy: 8, r: 5 }),
+            h('path', {
+              d: 'M8 3a5 5 0 0 1 0 10Z',
+              fill: 'currentColor',
+              stroke: 'none',
+            }),
+          );
+        }
+        if (kind === 'aurora') {
+          return h(
+            'svg',
+            { ...common, fill: 'currentColor', stroke: 'none' },
+            h('path', {
+              d: 'M8 1.5 9.4 6.6 14.5 8 9.4 9.4 8 14.5 6.6 9.4 1.5 8 6.6 6.6Z',
+            }),
+          );
+        }
+        if (kind === 'pin') {
+          return h(
+            'svg',
+            common,
+            h('path', {
+              d: 'M8 14.2s4.4-4.2 4.4-7.8a4.4 4.4 0 1 0-8.8 0C3.6 10 8 14.2 8 14.2Z',
+            }),
+            h('circle', { cx: 8, cy: 6.4, r: 1.7 }),
+          );
+        }
+        return h('svg', common, h('path', {
+          d: 'M8 1.8c2.8 3.2 4.6 5.5 4.6 7.6a4.6 4.6 0 0 1-9.2 0C3.4 7.3 5.2 5 8 1.8Z',
+        }));
+      };
+
+      const switchEl = (on) =>
+        h(
+          'span',
+          {
+            className: 'dsh-sky-switch' + (on ? ' is-on' : ''),
+            'aria-hidden': 'true',
+          },
+          h('span', { className: 'dsh-sky-knob' }),
+        );
+
+      const tile = (
+        key,
+        label,
+        icon,
+        on,
+        toggle,
+        actionOn,
+        actionOff,
+        disabled = false,
+        disabledTitle = '',
+      ) =>
+        h(
+          'button',
+          {
+            key,
+            type: 'button',
+            role: 'switch',
+            className:
+              'dsh-sky-tile' +
+              (on ? ' is-on' : '') +
+              (disabled ? ' is-disabled' : ''),
+            'aria-checked': on,
+            'aria-disabled': disabled ? 'true' : undefined,
+            disabled,
+            title: disabled ? disabledTitle : t(on ? actionOn : actionOff),
+            onClick: toggle,
+          },
+          glyph(icon, 'dsh-sky-tile-icon', 14),
+          h('span', { className: 'dsh-sky-tile-label' }, label),
+          switchEl(on),
+        );
+
+      const weatherBlock = h(
+        'div',
+        { className: 'dsh-sky-now', 'aria-live': 'polite' },
         h(
           'div',
-          { key, className: 'dsh-sky-option' },
-          h('span', { className: 'dsh-sky-option-label' }, label),
+          { className: 'dsh-sky-now-main' },
+          weatherNow.state === 'on' ? h(WeatherGlyph, { kind: weatherNow.kind }) : null,
           h(
-            'button',
+            'span',
             {
-              type: 'button',
-              role: 'switch',
-              className: 'dsh-sky-switch' + (on ? ' is-on' : ''),
-              'aria-checked': on,
-              'aria-label': t(on ? actionOn : actionOff),
-              title: t(on ? actionOn : actionOff),
-              onClick: toggle,
+              className:
+                'dsh-sky-now-cond' + (weatherNow.state === 'on' ? '' : ' is-muted'),
             },
-            h('span', { className: 'dsh-sky-knob' }),
+            weatherNow.label,
           ),
-        );
+          weatherNow.temp
+            ? h('span', { className: 'dsh-sky-now-temp' }, weatherNow.temp)
+            : null,
+          weatherNow.details
+            ? h('span', {
+                className: 'dsh-sky-now-sep',
+                'aria-hidden': 'true',
+              }, '·')
+            : null,
+          weatherNow.details
+            ? h(
+                'span',
+                { className: 'dsh-sky-now-details', title: weatherNow.details },
+                weatherNow.details,
+              )
+            : null,
+        ),
+        h(
+          'div',
+          { className: 'dsh-sky-now-place', title: locationTitle },
+          glyph('pin', 'dsh-sky-now-pin', 11),
+          location
+            ? [
+                placeText
+                  ? h(
+                      'span',
+                      {
+                        key: 'place',
+                        className: 'dsh-sky-now-place-name',
+                        title: 'Place data © OpenStreetMap contributors',
+                      },
+                      placeText,
+                    )
+                  : null,
+                placeText && locationSource
+                  ? h('span', {
+                      key: 'sep',
+                      className: 'dsh-sky-now-sep',
+                      'aria-hidden': 'true',
+                    }, '·')
+                  : null,
+                locationSource
+                  ? h(
+                      'span',
+                      { key: 'source', className: 'dsh-sky-now-source' },
+                      locationSource,
+                    )
+                  : null,
+                coordinateText
+                  ? h(
+                      'span',
+                      { key: 'coords', className: 'dsh-sky-now-coords' },
+                      coordinateText,
+                    )
+                  : null,
+              ]
+            : h(
+                'span',
+                { className: 'dsh-sky-now-place-name' },
+                locationPending ? t('locationLocating') : t('locationUnavailable'),
+              ),
+        ),
+      );
 
       return h(
         React.Fragment,
@@ -3545,93 +4151,159 @@ window.__ModuleLoader__.load({
           h(
             'div',
             {
-              ref: stripRef,
-              className: 'dsh-sky-strip' + (canScrub ? '' : ' is-off') + (live ? '' : ' is-preview'),
-              role: 'slider',
-              tabIndex: canScrub ? 0 : -1,
-              'aria-disabled': canScrub ? undefined : true,
-              'aria-label': t('skyScrub'),
-              'aria-valuemin': 0,
-              'aria-valuemax': 1439,
-              'aria-valuenow': shownMinute,
-              'aria-valuetext': t(sample.phase) + ' ' + clockTime(shownMinute),
-              onPointerDown,
-              onPointerMove,
-              onPointerUp,
-              onPointerCancel: onPointerUp,
-              onKeyDown,
+              key: 'panel',
+              className: 'dsh-sky-panel',
+              role: 'group',
+              'aria-label': t('skyTitle'),
             },
-            h('span', { className: 'dsh-sky-mark', style: { left: marker + '%' } }),
-            sun && sun.kind === 'normal'
-              ? [
+            weatherBlock,
+            h(
+              'div',
+              { className: 'dsh-sky-strip-block' },
+              h(
+                'div',
+                {
+                  ref: stripRef,
+                  className:
+                    'dsh-sky-strip' +
+                    (canScrub ? '' : ' is-off') +
+                    (live ? '' : ' is-preview'),
+                  role: 'slider',
+                  tabIndex: canScrub ? 0 : -1,
+                  'aria-disabled': canScrub ? undefined : true,
+                  'aria-label': t('skyScrub'),
+                  'aria-valuemin': 0,
+                  'aria-valuemax': 1439,
+                  'aria-valuenow': shownMinute,
+                  'aria-valuetext': t(sample.phase) + ' ' + clockTime(shownMinute),
+                  onPointerDown,
+                  onPointerMove,
+                  onPointerUp,
+                  onPointerCancel: onPointerUp,
+                  onKeyDown,
+                },
+                h('span', { className: 'dsh-sky-mark', style: { left: marker + '%' } }),
+                sun && sun.kind === 'normal'
+                  ? [
+                      h(
+                        'span',
+                        {
+                          key: 'sunrise',
+                          className: 'dsh-sky-sun is-rise',
+                          style: { left: sunPercent(sun.sunrise) + '%' },
+                          role: 'img',
+                          'aria-label': t('skySunrise') + ' ' + clockTime(sun.sunrise),
+                          title: t('skySunrise') + ' ' + clockTime(sun.sunrise),
+                        },
+                        h(SunIcon),
+                      ),
+                      h(
+                        'span',
+                        {
+                          key: 'sunset',
+                          className: 'dsh-sky-sun is-set',
+                          style: { left: sunPercent(sun.sunset) + '%' },
+                          role: 'img',
+                          'aria-label': t('skySunset') + ' ' + clockTime(sun.sunset),
+                          title: t('skySunset') + ' ' + clockTime(sun.sunset),
+                        },
+                        h(SunIcon),
+                      ),
+                    ]
+                  : null,
+              ),
+              h(
+                'div',
+                { className: 'dsh-sky-strip-labels', 'aria-hidden': 'true' },
+                [0, 6, 12, 18, 24].map((hour) =>
                   h(
                     'span',
-                    {
-                      key: 'sunrise',
-                      className: 'dsh-sky-sun is-rise',
-                      style: { left: sunPercent(sun.sunrise) + '%' },
-                      role: 'img',
-                      'aria-label': t('skySunrise') + ' ' + clockTime(sun.sunrise),
-                      title: t('skySunrise') + ' ' + clockTime(sun.sunrise),
-                    },
-                    h(SunIcon),
+                    { key: hour },
+                    String(hour).padStart(2, '0') + ':00',
+                  ),
+                ),
+              ),
+              h('div', { className: 'dsh-sky-hint' }, hint),
+            ),
+            h(
+              'div',
+              { className: 'dsh-sky-controls' },
+              h(
+                'div',
+                { className: 'dsh-sky-tiles' },
+                tile(
+                  'sky',
+                  t('skyLabel'),
+                  'sky',
+                  skyOn,
+                  () => setSkyEnabled(!skyEnabled),
+                  'skyActionOn',
+                  'skyActionOff',
+                  !ambienceOn,
+                  t('skyNeedsAmbience'),
+                ),
+                tile(
+                  'weather',
+                  t('weatherLabel'),
+                  'weather',
+                  weatherOn,
+                  () => setWeatherEnabled(!weatherEnabled),
+                  'weatherActionOn',
+                  'weatherActionOff',
+                ),
+                tile(
+                  'ambience',
+                  t('ambienceLabel'),
+                  'aurora',
+                  ambienceOn,
+                  () => setAmbienceEnabled(!ambienceEnabled),
+                  'ambienceActionOn',
+                  'ambienceActionOff',
+                ),
+                tile(
+                  'theme',
+                  t('themeLabel'),
+                  'theme',
+                  themeOn,
+                  () => themeApi.setEnabled(!themeOn),
+                  'themeActionOn',
+                  'themeActionOff',
+                ),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  role: 'switch',
+                  className:
+                    'dsh-sky-loc-toggle' + (precise.enabled ? ' is-on' : ''),
+                  'aria-checked': precise.enabled,
+                  'aria-labelledby': 'dsh-sky-precise-title',
+                  'aria-describedby': 'dsh-sky-precise-desc',
+                  title: t(
+                    precise.enabled ? 'preciseActionOn' : 'preciseActionOff',
+                  ),
+                  onClick: () => setPreciseEnabled(!preciseEnabled),
+                },
+                glyph('pin', 'dsh-sky-loc-icon', 14),
+                h(
+                  'span',
+                  { className: 'dsh-sky-loc-copy' },
+                  h(
+                    'span',
+                    { id: 'dsh-sky-precise-title', className: 'dsh-sky-loc-title' },
+                    t('preciseLabel'),
                   ),
                   h(
                     'span',
-                    {
-                      key: 'sunset',
-                      className: 'dsh-sky-sun is-set',
-                      style: { left: sunPercent(sun.sunset) + '%' },
-                      role: 'img',
-                      'aria-label': t('skySunset') + ' ' + clockTime(sun.sunset),
-                      title: t('skySunset') + ' ' + clockTime(sun.sunset),
-                    },
-                    h(SunIcon),
+                    { id: 'dsh-sky-precise-desc', className: 'dsh-sky-loc-desc' },
+                    t('preciseDescription'),
                   ),
-                ]
-              : null,
-          ),
-          h(
-            'div',
-            { className: 'dsh-sky-options' },
-            option('clock', t('skyFollow'), skyOn, () => setSkyEnabled(!skyEnabled), 'skyActionOn', 'skyActionOff'),
-            option(
-              'weather',
-              weatherLabel,
-              weatherOn,
-              () => setWeatherEnabled(!weatherEnabled),
-              'weatherActionOn',
-              'weatherActionOff',
-            ),
-            option(
-              'precise',
-              t('preciseLabel'),
-              precise.enabled,
-              () => setPreciseEnabled(!preciseEnabled),
-              'preciseActionOn',
-              'preciseActionOff',
-            ),
-            option('theme', t('themeLabel'), themeOn, () => themeApi.setEnabled(!themeOn), 'themeActionOn', 'themeActionOff'),
-            option(
-              'accent',
-              t('accentLabel'),
-              accentOn,
-              () => setAccentEnabled(!accentEnabled),
-              'accentActionOn',
-              'accentActionOff',
-            ),
-            option(
-              'ambience',
-              t('ambienceLabel'),
-              ambienceOn,
-              () => setAmbienceEnabled(!ambienceEnabled),
-              'ambienceActionOn',
-              'ambienceActionOff',
+                ),
+                switchEl(precise.enabled),
+              ),
             ),
           ),
-          h('div', { className: 'dsh-sky-weather-summary', 'aria-live': 'polite' }, weatherSummary),
-          h('div', { className: 'dsh-sky-location', 'aria-live': 'polite' }, locationText),
-          h('div', { className: 'dsh-sky-hint' }, hint),
         ),
       );
     }
@@ -3659,16 +4331,19 @@ window.__ModuleLoader__.load({
         seedDefaults(themeApi);
 
         ctx.effect(() => {
-          const controller = refreshGeo();
+          const controller =
+            clockStatus === 'pending' ? refreshClockZones() : null;
           return () => {
-            if (controller) controller.abort();
+            if (!controller) return;
+            if (clockZoneController === controller) clockZoneController = null;
+            controller.abort();
           };
         });
 
         ctx.effect(() => {
-          if (weatherEnabled) refreshWeather(resolveSkyLocation(skyGeo));
+          if (weatherEnabled) refreshWeather(resolveSkyLocation());
           const timer = window.setInterval(() => {
-            if (weatherEnabled) refreshWeather(resolveSkyLocation(skyGeo));
+            if (weatherEnabled) refreshWeather(resolveSkyLocation());
           }, WEATHER_TTL_MS);
           return () => {
             window.clearInterval(timer);
@@ -3692,16 +4367,24 @@ window.__ModuleLoader__.load({
         });
 
         ctx.effect(() => {
-          if (
-            preciseEnabled &&
-            (!preciseGeo || Date.now() - preciseGeo.ts >= PRECISE_TTL_MS)
-          ) {
-            requestPreciseLocation();
-          }
+          const refresh = () => {
+            if (
+              preciseEnabled &&
+              (!preciseGeo || Date.now() - preciseGeo.ts >= PRECISE_TTL_MS)
+            ) {
+              requestPreciseLocation();
+            }
+          };
+          refresh();
+          const timer = window.setInterval(refresh, 60 * 1000);
           return () => {
+            window.clearInterval(timer);
             preciseRequest += 1;
           };
         });
+
+        window.dshNebula = window.dshNebula || {};
+        window.dshNebula.resetPreciseLocation = resetPreciseLocation;
 
         if (themeFace) {
           // Wait for the host settings section to hydrate before writing a
@@ -4032,7 +4715,7 @@ window.__ModuleLoader__.load({
     const LEGACY_VOLUME_KEY = 'dsh.nebula-radio.volume';
     const LEGACY_STATIONS_KEY = 'dsh.nebula-radio.stations';
     const DEFAULT_VOLUME = 0.4;
-    const MAX_STATIONS = 20;
+    const MAX_STATIONS = 15;
     const CONNECT_TIMEOUT_MS = 20000;
     const STALL_TIMEOUT_MS = 12000;
     const MAX_RETRIES = 3;
@@ -4068,12 +4751,13 @@ window.__ModuleLoader__.load({
       stationLabel: 'Station',
       chooseStation: 'Choose station',
       stations: 'Stations',
-      stationFooter: 'Add or remove stations in Settings → Nebula Station.',
+      stationFooter: 'Manage in Settings',
       openStation: 'Open station page',
       removeStation: 'Remove',
       retry: 'Retry',
       retryNow: 'Retry now',
       volumeLabel: 'Volume',
+      volumeScroll: 'Scroll to adjust volume',
       stateOn: 'Playing',
       stateOff: 'Paused',
       stateConnecting: 'Connecting…',
@@ -4085,10 +4769,13 @@ window.__ModuleLoader__.load({
       previewPlay: 'Preview {station}',
       previewStop: 'Stop preview',
       previewError: 'Preview unavailable',
-      hint: 'Streams via Radio Garden, with discovery from Radio Browser.',
       addToggle: 'Add station',
-      addHint: 'Search by name, or paste a radio.garden/listen/… station URL.',
-      cancel: 'Cancel',
+      addTitle: 'Find a station',
+      closeAdd: 'Close',
+      modeSearch: 'Search',
+      modeBrowse: 'By country',
+      allStations: 'All stations',
+      allStationsIn: 'All stations in {country}',
       addLabel: 'Find or add station',
       addPlaceholder: 'Search stations or paste a URL',
       addButton: 'Add',
@@ -4098,12 +4785,11 @@ window.__ModuleLoader__.load({
       searchError: 'Station search is unavailable right now.',
       searchMin: 'Type at least two characters.',
       searchResults: 'Search results',
-      countryPlaceholder: 'Top 10 by country',
+      countryPlaceholder: 'Choose a country',
       countryLabel: 'Country for top stations',
       countryLoading: 'Loading countries…',
       countryError: 'Country list unavailable.',
-      topTenButton: 'Top 10',
-      topStations: 'Top 10 in {country}',
+      topStations: 'Stations in {country}',
       sortLabel: 'Rank by',
       sortClicks: 'Clicks',
       sortVotes: 'Votes',
@@ -4111,7 +4797,7 @@ window.__ModuleLoader__.load({
       searchAdd: 'Add {station}',
       addInvalid: 'Use a radio.garden/listen/… URL, or search by station name.',
       addDuplicate: 'That station is already in the list.',
-      addLimit: 'You can save up to 20 stations.',
+      addLimit: 'You can add up to 10 stations.',
       collapseSection: 'Collapse section',
       expandSection: 'Expand section',
     };
@@ -4165,7 +4851,7 @@ window.__ModuleLoader__.load({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
+  width: 22px;
   height: 28px;
   margin: 0;
   padding: 0;
@@ -4174,13 +4860,13 @@ window.__ModuleLoader__.load({
   border-radius: 0 8px 8px 0;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  box-shadow: inset 1px 0 0 transparent;
+  box-shadow: inset 1px 0 0 var(--dsw-alias-border-l1);
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 .dsh-nr-split:hover .dsh-nr-menu,
 .dsh-nr-menu.is-open {
-  box-shadow: inset 1px 0 0 var(--dsw-alias-border-l1);
+  box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2);
 }
 .dsh-nr-menu:hover { color: var(--dsw-alias-label-primary); }
 .dsh-nr-menu.is-open { color: var(--dsw-alias-brand-primary); }
@@ -4272,8 +4958,12 @@ window.__ModuleLoader__.load({
 .dsh-nr-meta {
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: space-between;
+  gap: 10px 14px;
   flex-wrap: wrap;
+}
+.dsh-nr-meta > :last-child:not(.dsh-nr-link) {
+  margin-left: auto;
 }
 .dsh-nr-avatar {
   flex: none;
@@ -4281,11 +4971,11 @@ window.__ModuleLoader__.load({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   color: #f7f9ff;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
   user-select: none;
@@ -4302,29 +4992,168 @@ window.__ModuleLoader__.load({
   border-radius: 50%;
   background: var(--dsw-alias-state-success-primary);
 }
-.dsh-nr-select {
+.dsh-nr-station-trigger {
   flex: 1;
   min-width: 0;
-  height: 32px;
-  padding: 0 8px;
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  padding: 0 9px;
   border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
   background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
   font: inherit;
   font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
-.dsh-nr-select:focus-visible {
+.dsh-nr-station-trigger:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+.dsh-nr-station-trigger[aria-expanded='true'] {
+  border-color: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-station-trigger:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
+}
+.dsh-nr-station-trigger-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-nr-station-chevron {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  transition: transform 140ms ease;
+}
+.dsh-nr-station-chevron.is-open { transform: rotate(180deg); }
+.dsh-nr-station-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: dsh-nr-picker-in 120ms ease-out;
+}
+@keyframes dsh-nr-picker-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.dsh-nr-station-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+.dsh-nr-station-list-count {
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.dsh-nr-station-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 236px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-brand-primary) transparent;
+  padding: 4px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-nr-station-list::-webkit-scrollbar { width: 9px; }
+.dsh-nr-station-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-station-list::-webkit-scrollbar-track { background: transparent; }
+.dsh-nr-station-item {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.dsh-nr-station-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.dsh-nr-station-pick:hover { background: var(--dsw-alias-bg-layer-2); }
+.dsh-nr-station-item.is-active .dsh-nr-station-pick {
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dsh-nr-station-pick:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+.dsh-nr-station-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-nr-station-check {
+  flex: none;
+  color: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-station-delete {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+.dsh-nr-station-delete:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-state-error-primary);
+}
+.dsh-nr-station-delete:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
 }
 .dsh-nr-play {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 32px;
+  width: 38px;
+  height: 34px;
   padding: 0;
   border: 1px solid var(--dsw-alias-brand-primary);
   border-radius: 8px;
@@ -4348,26 +5177,6 @@ window.__ModuleLoader__.load({
 .dsh-nr-play:focus-visible {
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 2px;
-}
-.dsh-nr-remove {
-  flex: none;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 12px;
-  line-height: 18px;
-  cursor: pointer;
-}
-.dsh-nr-remove:hover {
-  color: var(--dsw-alias-state-error-primary);
-  text-decoration: underline;
-}
-.dsh-nr-remove:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
 }
 .dsh-nr-retry {
   flex: none;
@@ -4413,13 +5222,13 @@ window.__ModuleLoader__.load({
   font-variant-numeric: tabular-nums;
 }
 .dsh-nr-add-toggle {
-  align-self: flex-start;
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px dashed var(--dsw-alias-border-l2);
+  height: 30px;
+  padding: 0 11px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
@@ -4438,24 +5247,128 @@ window.__ModuleLoader__.load({
   outline-offset: 2px;
 }
 .dsh-nr-plus {
-  font-size: 14px;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 15px;
   line-height: 1;
+}
+.dsh-nr-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+.dsh-nr-footer.is-adding {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 .dsh-nr-add-wrap {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
 }
 .dsh-nr-add-form {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
-.dsh-nr-country-row {
+.dsh-nr-add-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.dsh-nr-add-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+.dsh-nr-add-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.dsh-nr-add-close:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-nr-add-close:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+.dsh-nr-modes {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+}
+.dsh-nr-mode {
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.dsh-nr-mode:hover { color: var(--dsw-alias-label-primary); }
+.dsh-nr-mode.is-active {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+.dsh-nr-mode:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+.dsh-nr-is-hidden { display: none !important; }
+.dsh-nr-browse-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dsh-nr-sort-select {
+  flex: none;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.dsh-nr-sort-select:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
 }
 .dsh-nr-country-select {
   flex: 1;
@@ -4477,68 +5390,22 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-secondary);
   cursor: default;
 }
-.dsh-nr-discover {
-  flex: none;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.dsh-nr-discover:hover:not(:disabled) {
-  border-color: var(--dsw-alias-brand-primary);
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-}
-.dsh-nr-discover:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
-}
-.dsh-nr-discover:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.dsh-nr-sort-row {
-  display: flex;
+.dsh-nr-all {
+  display: inline-flex;
+  align-self: flex-start;
   align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.dsh-nr-sort-label {
+  gap: 6px;
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  line-height: 18px;
-  margin-right: 4px;
-}
-.dsh-nr-sort {
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
-.dsh-nr-sort:hover {
-  border-color: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-label-primary);
-}
-.dsh-nr-sort.is-active {
-  border-color: var(--dsw-alias-brand-primary);
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-brand-primary);
-}
-.dsh-nr-sort:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 1px;
+.dsh-nr-all input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--dsw-alias-brand-primary);
+  cursor: pointer;
 }
 .dsh-nr-country-hint {
   color: var(--dsw-alias-state-error-primary);
@@ -4550,9 +5417,21 @@ window.__ModuleLoader__.load({
   flex-direction: column;
   gap: 4px;
   max-height: 210px;
+  min-width: 0;
   overflow-y: auto;
-  padding: 1px 0 2px;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-brand-primary) transparent;
+  padding: 1px 4px 2px 0;
 }
+.dsh-nr-search-panel::-webkit-scrollbar { width: 10px; }
+.dsh-nr-search-panel::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-search-panel::-webkit-scrollbar-track { background: transparent; }
 .dsh-nr-search-status {
   padding: 5px 2px;
   color: var(--dsw-alias-label-secondary);
@@ -4561,13 +5440,11 @@ window.__ModuleLoader__.load({
 }
 .dsh-nr-search-status.is-error { color: var(--dsw-alias-state-error-primary); }
 .dsh-nr-search-heading {
-  padding: 3px 2px 2px;
+  padding: 4px 2px 2px;
   color: var(--dsw-alias-label-secondary);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  line-height: 15px;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
 }
 .dsh-nr-result-rank {
   flex: none;
@@ -4583,6 +5460,7 @@ window.__ModuleLoader__.load({
   align-items: stretch;
   gap: 4px;
   width: 100%;
+  min-width: 0;
 }
 .dsh-nr-result-row .dsh-nr-result {
   flex: 1;
@@ -4722,31 +5600,6 @@ window.__ModuleLoader__.load({
   outline: 2px solid var(--dsw-alias-brand-primary);
   outline-offset: 1px;
 }
-.dsh-nr-cancel {
-  flex: none;
-  height: 32px;
-  padding: 0 6px;
-  border: 0;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.dsh-nr-cancel:hover {
-  color: var(--dsw-alias-label-primary);
-  text-decoration: underline;
-}
-.dsh-nr-cancel:focus-visible {
-  outline: 2px solid var(--dsw-alias-brand-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-.dsh-nr-row-hint {
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
-}
 .dsh-nr-error {
   color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
@@ -4754,6 +5607,9 @@ window.__ModuleLoader__.load({
 }
 .dsh-nr-link {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--dsw-alias-brand-primary);
   font-size: 12px;
   line-height: 18px;
@@ -4785,6 +5641,7 @@ window.__ModuleLoader__.load({
   to { opacity: 1; transform: translateY(0); }
 }
 .dsh-nr-pop-head {
+  flex: none;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -4804,15 +5661,27 @@ window.__ModuleLoader__.load({
   white-space: nowrap;
 }
 .dsh-nr-pop-list {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
+  max-height: var(--dsh-nr-pop-list-max, 264px);
   display: flex;
   flex-direction: column;
   gap: 2px;
-  overflow-y: auto;
-  padding: 4px 6px 6px;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-brand-primary) transparent;
+  padding: 4px 4px 6px 6px;
 }
+.dsh-nr-pop-list::-webkit-scrollbar { width: 10px; }
+.dsh-nr-pop-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+.dsh-nr-pop-list::-webkit-scrollbar-track { background: transparent; }
 .dsh-nr-pop-item {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -4863,6 +5732,7 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-brand-primary);
 }
 .dsh-nr-pop-foot {
+  flex: none;
   padding: 7px 12px 9px;
   border-top: 0.5px solid var(--dsw-alias-border-l1);
   color: var(--dsw-alias-label-secondary);
@@ -4872,6 +5742,7 @@ window.__ModuleLoader__.load({
 @media (prefers-reduced-motion: reduce) {
   .dsh-nr-wave { animation: none; }
   .dsh-nr-pop { animation: none; }
+  .dsh-nr-station-picker { animation: none; }
   .dsh-nr-chevron { transition: none; }
 }
 `;
@@ -5778,30 +6649,34 @@ window.__ModuleLoader__.load({
       if (wasLive) playRadio();
     }
 
-    function removeActiveStation() {
-      const station = activeStation();
+    function removeStation(id) {
+      const station = stations.find((item) => item.id === id);
       if (!station || SEED_IDS.has(station.id)) return;
+      const wasActive = activeId === station.id;
       clearRetryTimer();
       clearStallTimer();
       retryCount = 0;
       reconnecting = false;
       buffering = false;
-      stations = stations.filter((item) => item.id !== station.id);
+      stations = stations.filter((item) => item.id !== id);
       persistStations();
-      activeId = DEFAULT_SEED.id;
-      persistActive();
-      if (audio) {
-        try {
-          audio.pause();
-        } catch {
-          /* The source swap below still applies. */
+      if (wasActive) {
+        activeId = DEFAULT_SEED.id;
+        persistActive();
+        if (audio) {
+          try {
+            audio.pause();
+          } catch {
+            /* The source swap below still applies. */
+          }
+          loadedId = '';
+          applySource(audio);
         }
-        loadedId = '';
-        applySource(audio);
+        playing = false;
+        connecting = false;
+        failed = false;
       }
-      playing = false;
-      connecting = false;
-      failed = false;
+      cancelPreview(false);
       emit();
     }
 
@@ -6013,13 +6888,26 @@ window.__ModuleLoader__.load({
           const width = Math.min(264, Math.max(160, window.innerWidth - 16));
           const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
           const above = rect.top > Math.min(window.innerHeight - rect.bottom, 360) || rect.top > 300;
-          const space = above ? rect.top - 8 : window.innerHeight - rect.bottom - 8;
+          const gap = 18;
+          const space = above ? rect.top - gap : window.innerHeight - rect.bottom - gap;
           const maxHeight = Math.max(110, Math.min(360, space));
-          next = { left, width, maxHeight };
-          if (above) next.bottom = window.innerHeight - rect.top + 6;
-          else next.top = rect.bottom + 6;
+          const listMax = Math.min(264, Math.max(48, maxHeight - 66));
+          next = {
+            left,
+            width,
+            maxHeight,
+            '--dsh-nr-pop-list-max': listMax + 'px',
+          };
+          if (above) next.bottom = window.innerHeight - rect.top + gap;
+          else next.top = rect.bottom + gap;
         } else {
-          next = { left: 8, top: 8, width: 264, maxHeight: 320 };
+          next = {
+            left: 8,
+            top: 8,
+            width: 264,
+            maxHeight: 320,
+            '--dsh-nr-pop-list-max': '264px',
+          };
         }
         setPosition(next);
         setOpen(true);
@@ -6172,7 +7060,11 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'dsh-nr-pop-head' },
-                  h('span', { className: 'dsh-nr-pop-title' }, t('stations')),
+                  h(
+                    'span',
+                    { className: 'dsh-nr-pop-title' },
+                    t('stations') + ' · ' + state.stations.length,
+                  ),
                   h('span', { className: 'dsh-nr-pop-state' }, statusLabel),
                 ),
                 h(
@@ -6198,6 +7090,7 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState('');
       const [error, setError] = useState('');
       const [adding, setAdding] = useState(false);
+      const [stationListOpen, setStationListOpen] = useState(false);
       const [expanded, setExpanded] = useState(() => {
         try {
           return window.localStorage.getItem('dsh.nebula-station.expanded') !== '0';
@@ -6214,9 +7107,14 @@ window.__ModuleLoader__.load({
       const [countriesError, setCountriesError] = useState(false);
       const [countryCode, setCountryCode] = useState('');
       const [sortBy, setSortBy] = useState('clickcount');
+      const [finderMode, setFinderMode] = useState('search');
+      const [showAll, setShowAll] = useState(false);
       const addInputRef = useRef(null);
       const addToggleRef = useRef(null);
       const searchAbortRef = useRef(null);
+      const volumeRowRef = useRef(null);
+      const stationTriggerRef = useRef(null);
+      const stationListRef = useRef(null);
       const percent = Math.round(state.volume * 100);
       const status = state.previewId
         ? state.previewState === 'error'
@@ -6262,6 +7160,57 @@ window.__ModuleLoader__.load({
           'linear-gradient(135deg, hsl(' + hue + ', 72%, 55%), hsl(' + ((hue + 48) % 360) + ', 72%, 42%))',
       };
       const urlDraft = STATION_PATTERN.test(draft.trim());
+
+      useEffect(() => {
+        if (!stationListOpen) return undefined;
+        const onPointerDown = (event) => {
+          if (
+            (stationTriggerRef.current &&
+              stationTriggerRef.current.contains(event.target)) ||
+            (stationListRef.current && stationListRef.current.contains(event.target))
+          ) {
+            return;
+          }
+          setStationListOpen(false);
+        };
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          setStationListOpen(false);
+          if (stationTriggerRef.current) stationTriggerRef.current.focus();
+        };
+        document.addEventListener('pointerdown', onPointerDown, true);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+          document.removeEventListener('pointerdown', onPointerDown, true);
+          document.removeEventListener('keydown', onKeyDown);
+        };
+      }, [stationListOpen]);
+
+      useEffect(() => {
+        const node = volumeRowRef.current;
+        if (!node) return undefined;
+        let accumulated = 0;
+        const onWheel = (event) => {
+          if (event.ctrlKey || event.metaKey) return;
+          if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
+          const delta =
+            event.deltaMode === 1
+              ? event.deltaY * 16
+              : event.deltaMode === 2
+                ? event.deltaY * 100
+                : event.deltaY;
+          if (!delta) return;
+          event.preventDefault();
+          accumulated += delta;
+          if (Math.abs(accumulated) < 30) return;
+          const direction = accumulated < 0 ? 1 : -1;
+          accumulated = 0;
+          setVolume(Math.min(1, Math.max(0, state.volume + direction * 0.05)));
+        };
+        node.addEventListener('wheel', onWheel, { passive: false });
+        return () => node.removeEventListener('wheel', onWheel);
+      }, [state.volume]);
       const submitLabel = searching
         ? t('searching')
         : urlDraft
@@ -6331,6 +7280,11 @@ window.__ModuleLoader__.load({
 
       function openAdd() {
         setAdding(true);
+        setDraft('');
+        setCountryCode('');
+        setSortBy('clickcount');
+        setFinderMode('search');
+        setShowAll(false);
         setError('');
         setResults([]);
         setSearchError('');
@@ -6345,6 +7299,10 @@ window.__ModuleLoader__.load({
         }
         setAdding(false);
         setDraft('');
+        setCountryCode('');
+        setSortBy('clickcount');
+        setFinderMode('search');
+        setShowAll(false);
         setError('');
         setResults([]);
         setSearchError('');
@@ -6361,6 +7319,7 @@ window.__ModuleLoader__.load({
           setSearching(false);
         }
         setDraft(event.target.value);
+        setCountryCode('');
         if (error) setError('');
         if (results.length) setResults([]);
         if (searchError) setSearchError('');
@@ -6369,6 +7328,7 @@ window.__ModuleLoader__.load({
 
       function runSearch(query) {
         state.stopPreview();
+        setCountryCode('');
         if (!query || query.length < 2) {
           setError(t('searchMin'));
           return;
@@ -6429,7 +7389,7 @@ window.__ModuleLoader__.load({
           });
       }
 
-      function runCountry(code, nextSort = sortBy) {
+      function runCountry(code, nextSort = sortBy, all = false) {
         state.stopPreview();
         if (!code) return;
         if (searchAbortRef.current) searchAbortRef.current.abort();
@@ -6441,7 +7401,9 @@ window.__ModuleLoader__.load({
               ? t('sortTrend')
               : t('sortClicks');
         const label =
-          t('topStations').replace('{country}', country ? country.name : code) +
+          (all
+            ? t('allStationsIn').replace('{country}', country ? country.name : code)
+            : t('topStations').replace('{country}', country ? country.name : code)) +
           ' · ' +
           sortLabel;
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -6455,7 +7417,7 @@ window.__ModuleLoader__.load({
           hidebroken: 'true',
           order: nextSort,
           reverse: 'true',
-          limit: '30',
+          limit: all ? '500' : '30',
         });
         window
           .fetch(RADIO_BROWSER_ENDPOINT + '?' + params.toString(), {
@@ -6488,7 +7450,7 @@ window.__ModuleLoader__.load({
                 (Number(b[nextSort]) || 0) - (Number(a[nextSort]) || 0),
             );
             if (!next.length) setSearchError(t('searchEmpty'));
-            else setResults(next.slice(0, 10));
+            else setResults(next.slice(0, all ? 500 : 10));
           })
           .catch((error) => {
             if (controller && controller.signal.aborted) return;
@@ -6500,6 +7462,24 @@ window.__ModuleLoader__.load({
               setSearching(false);
             }
           });
+      }
+
+      function switchFinderMode(next) {
+        if (next === finderMode) return;
+        state.stopPreview();
+        if (searchAbortRef.current) {
+          searchAbortRef.current.abort();
+          searchAbortRef.current = null;
+          setSearching(false);
+        }
+        setFinderMode(next);
+        setResults([]);
+        setSearchError('');
+        setResultLabel('');
+        setError('');
+        if (next === 'browse' && countryCode) {
+          runCountry(countryCode, sortBy, showAll);
+        }
       }
 
       function changeSort(next) {
@@ -6514,12 +7494,11 @@ window.__ModuleLoader__.load({
         setResults([]);
         setSearchError('');
         setResultLabel('');
-        if (countryCode) runCountry(countryCode, next);
+        if (countryCode) runCountry(countryCode, next, showAll);
       }
 
       function addFound(station) {
         if (!station) return;
-        state.stopPreview();
         if (
           stations.some(
             (existing) => existing.id === station.id || existing.streamUrl === station.streamUrl,
@@ -6534,14 +7513,9 @@ window.__ModuleLoader__.load({
         }
         stations.push(station);
         persistStations();
-        setDraft('');
+        emit();
         setError('');
-        setResults([]);
-        setSearchError('');
-        setResultLabel('');
-        setAdding(false);
-        switchStation(station.id);
-        focusToggle();
+        setResults((current) => current.filter((item) => item.id !== station.id));
       }
 
       function onAdd(event) {
@@ -6561,16 +7535,14 @@ window.__ModuleLoader__.load({
             setError(t('addLimit'));
             return;
           }
-          state.stopPreview();
           stations.push(parsed);
           persistStations();
+          emit();
           setDraft('');
           setError('');
           setResults([]);
           setSearchError('');
-          setAdding(false);
-          switchStation(parsed.id);
-          focusToggle();
+          setResultLabel('');
           return;
         }
         if (/^https?:\/\//i.test(text)) {
@@ -6664,15 +7636,38 @@ window.__ModuleLoader__.load({
                 stationInitials(active.name),
               ),
               h(
-                'select',
+                'button',
                 {
-                  className: 'dsh-nr-select',
-                  value: state.activeId,
-                  'aria-label': t('stationLabel'),
-                  onChange: (event) => switchStation(event.target.value),
+                  type: 'button',
+                  className: 'dsh-nr-station-trigger',
+                  ref: stationTriggerRef,
+                  'aria-haspopup': 'listbox',
+                  'aria-expanded': stationListOpen ? 'true' : 'false',
+                  title: t('chooseStation'),
+                  onClick: () => setStationListOpen((open) => !open),
                 },
-                state.stations.map((station) =>
-                  h('option', { key: station.id, value: station.id }, station.name),
+                h(
+                  'span',
+                  { className: 'dsh-nr-station-trigger-name' },
+                  active.name,
+                ),
+                h(
+                  'svg',
+                  {
+                    className:
+                      'dsh-nr-station-chevron' + (stationListOpen ? ' is-open' : ''),
+                    viewBox: '0 0 12 12',
+                    width: 10,
+                    height: 10,
+                    fill: 'none',
+                    stroke: 'currentColor',
+                    strokeWidth: 1.5,
+                    strokeLinecap: 'round',
+                    strokeLinejoin: 'round',
+                    'aria-hidden': 'true',
+                    focusable: 'false',
+                  },
+                  h('path', { d: 'M3 4.5 6 7.5 9 4.5' }),
                 ),
               ),
               h(
@@ -6721,6 +7716,111 @@ window.__ModuleLoader__.load({
                 ),
               ),
             ),
+            stationListOpen
+              ? h(
+                  'div',
+                  { className: 'dsh-nr-station-picker' },
+                  h(
+                    'div',
+                    { className: 'dsh-nr-station-list-head' },
+                    h('span', null, t('stations')),
+                    h(
+                      'span',
+                      { className: 'dsh-nr-station-list-count' },
+                      String(state.stations.length),
+                    ),
+                  ),
+                  h(
+                  'div',
+                  {
+                    className: 'dsh-nr-station-list',
+                    ref: stationListRef,
+                    role: 'listbox',
+                    'aria-label': t('stations'),
+                  },
+                  state.stations.map((station) => {
+                    const current = station.id === state.activeId;
+                    return h(
+                      'div',
+                      {
+                        key: station.id,
+                        className:
+                          'dsh-nr-station-item' + (current ? ' is-active' : ''),
+                      },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          role: 'option',
+                          'aria-selected': current ? 'true' : 'false',
+                          className: 'dsh-nr-station-pick',
+                          onClick: () => {
+                            switchStation(station.id);
+                            setStationListOpen(false);
+                          },
+                        },
+                        h(
+                          'span',
+                          { className: 'dsh-nr-station-name' },
+                          station.name,
+                        ),
+                        current
+                          ? h(
+                              'svg',
+                              {
+                                className: 'dsh-nr-station-check',
+                                viewBox: '0 0 12 12',
+                                width: 12,
+                                height: 12,
+                                fill: 'none',
+                                stroke: 'currentColor',
+                                strokeWidth: 1.6,
+                                strokeLinecap: 'round',
+                                strokeLinejoin: 'round',
+                                'aria-hidden': 'true',
+                                focusable: 'false',
+                              },
+                              h('path', { d: 'M2.4 6.4 4.9 8.8 9.6 3.5' }),
+                            )
+                          : null,
+                      ),
+                      SEED_IDS.has(station.id)
+                        ? null
+                        : h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'dsh-nr-station-delete',
+                              title:
+                                t('removeStation') + ' ' + station.name,
+                              'aria-label':
+                                t('removeStation') + ' ' + station.name,
+                              onClick: () => removeStation(station.id),
+                            },
+                            h(
+                              'svg',
+                              {
+                                viewBox: '0 0 16 16',
+                                width: 13,
+                                height: 13,
+                                fill: 'none',
+                                stroke: 'currentColor',
+                                strokeWidth: 1.3,
+                                strokeLinecap: 'round',
+                                strokeLinejoin: 'round',
+                                'aria-hidden': 'true',
+                                focusable: 'false',
+                              },
+                              h('path', {
+                                d: 'M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M6.8 7v3.8M9.2 7v3.8',
+                              }),
+                            ),
+                          ),
+                    );
+                  }),
+                ),
+                )
+              : null,
             h(
               'div',
               { className: 'dsh-nr-meta' },
@@ -6734,6 +7834,22 @@ window.__ModuleLoader__.load({
                   onClick: openStationInSidebar,
                 },
                 t('openStation'),
+                h(
+                  'svg',
+                  {
+                    viewBox: '0 0 12 12',
+                    width: 10,
+                    height: 10,
+                    fill: 'none',
+                    stroke: 'currentColor',
+                    strokeWidth: 1.2,
+                    strokeLinecap: 'round',
+                    strokeLinejoin: 'round',
+                    'aria-hidden': 'true',
+                    focusable: 'false',
+                  },
+                  h('path', { d: 'M7 2h3v3M10 2 5.5 6.5M9 7v3H2V3h3' }),
+                ),
               ),
               state.failed || state.reconnecting
                 ? h(
@@ -6747,17 +7863,14 @@ window.__ModuleLoader__.load({
                     t(state.reconnecting ? 'retryNow' : 'retry'),
                   )
                 : null,
-              SEED_IDS.has(active.id)
-                ? null
-                : h(
-                    'button',
-                    { className: 'dsh-nr-remove', type: 'button', onClick: removeActiveStation },
-                    t('removeStation'),
-                  ),
             ),
             h(
               'div',
-              { className: 'dsh-nr-row-controls' },
+              {
+                className: 'dsh-nr-row-controls',
+                ref: volumeRowRef,
+                title: t('volumeScroll'),
+              },
               h('span', { className: 'dsh-nr-volume-label' }, t('volumeLabel')),
               h('input', {
                 type: 'range',
@@ -6772,275 +7885,352 @@ window.__ModuleLoader__.load({
               }),
               h('span', { className: 'dsh-nr-value' }, percent + '%'),
             ),
-          ),
-          adding
-            ? h(
-                'div',
-                { className: 'dsh-nr-add-wrap' },
-                h(
-                  'form',
-                  { className: 'dsh-nr-add-form', onSubmit: onAdd, onKeyDown: onFormKeyDown },
-                  h('input', {
-                    ref: addInputRef,
-                    className: 'dsh-nr-input' + (error ? ' is-invalid' : ''),
-                    type: 'text',
-                    value: draft,
-                    maxLength: 300,
-                    autoComplete: 'off',
-                    spellCheck: 'false',
-                    inputMode: 'search',
-                    placeholder: t('addPlaceholder'),
-                    'aria-label': t('addLabel'),
-                    'aria-invalid': error ? 'true' : undefined,
-                    'aria-busy': searching ? 'true' : undefined,
-                    onChange: onDraftChange,
-                  }),
-                  h(
-                    'button',
-                    { className: 'dsh-nr-add', type: 'submit', disabled: searching },
-                    submitLabel,
-                  ),
-                  h(
-                    'button',
-                    { className: 'dsh-nr-cancel', type: 'button', onClick: closeAdd },
-                    t('cancel'),
-                  ),
-                ),
-                h(
-                  'div',
-                  { className: 'dsh-nr-country-row' },
-                  h(
-                    'select',
-                    {
-                      className: 'dsh-nr-country-select',
-                      value: countryCode,
-                      disabled: countriesLoading,
-                      'aria-label': t('countryLabel'),
-                      onChange: (event) => {
-                        state.stopPreview();
-                        if (searchAbortRef.current) {
-                          searchAbortRef.current.abort();
-                          searchAbortRef.current = null;
-                          setSearching(false);
-                        }
-                        setCountryCode(event.target.value);
-                        setResults([]);
-                        setSearchError('');
-                        setResultLabel('');
-                      },
-                    },
+            h(
+              'div',
+              { className: 'dsh-nr-footer' + (adding ? ' is-adding' : '') },
+              adding
+                ? h(
+                    'div',
+                    { className: 'dsh-nr-add-wrap' },
                     h(
-                      'option',
-                      { value: '' },
-                      countriesLoading ? t('countryLoading') : t('countryPlaceholder'),
-                    ),
-                    countries.map((country) =>
+                      'div',
+                      { className: 'dsh-nr-add-head' },
+                      h('div', { className: 'dsh-nr-add-title' }, t('addTitle')),
                       h(
-                        'option',
-                        { key: country.code, value: country.code },
-                        country.name + (country.count ? ' (' + country.count + ')' : ''),
+                        'button',
+                        {
+                          className: 'dsh-nr-add-close',
+                          type: 'button',
+                          onClick: closeAdd,
+                          'aria-label': t('closeAdd'),
+                          title: t('closeAdd'),
+                        },
+                        h(
+                          'svg',
+                          {
+                            viewBox: '0 0 12 12',
+                            width: 11,
+                            height: 11,
+                            fill: 'none',
+                            stroke: 'currentColor',
+                            strokeWidth: 1.4,
+                            strokeLinecap: 'round',
+                            'aria-hidden': 'true',
+                            focusable: 'false',
+                          },
+                          h('path', { d: 'M3 3l6 6M9 3l-6 6' }),
+                        ),
                       ),
                     ),
-                  ),
-                  h(
+                    h(
+                      'div',
+                      {
+                        className: 'dsh-nr-modes',
+                        role: 'tablist',
+                        'aria-label': t('addTitle'),
+                      },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          role: 'tab',
+                          'aria-selected': finderMode === 'search' ? 'true' : 'false',
+                          className:
+                            'dsh-nr-mode' +
+                            (finderMode === 'search' ? ' is-active' : ''),
+                          onClick: () => switchFinderMode('search'),
+                        },
+                        t('modeSearch'),
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          role: 'tab',
+                          'aria-selected': finderMode === 'browse' ? 'true' : 'false',
+                          className:
+                            'dsh-nr-mode' +
+                            (finderMode === 'browse' ? ' is-active' : ''),
+                          onClick: () => switchFinderMode('browse'),
+                        },
+                        t('modeBrowse'),
+                      ),
+                    ),
+                    h(
+                      'form',
+                      {
+                        className:
+                          'dsh-nr-add-form' +
+                          (finderMode === 'search' ? '' : ' dsh-nr-is-hidden'),
+                        onSubmit: onAdd,
+                        onKeyDown: onFormKeyDown,
+                      },
+                      h('input', {
+                        ref: addInputRef,
+                        className: 'dsh-nr-input' + (error ? ' is-invalid' : ''),
+                        type: 'text',
+                        value: draft,
+                        maxLength: 300,
+                        autoComplete: 'off',
+                        spellCheck: 'false',
+                        inputMode: 'search',
+                        placeholder: t('addPlaceholder'),
+                        'aria-label': t('addLabel'),
+                        'aria-invalid': error ? 'true' : undefined,
+                        'aria-busy': searching ? 'true' : undefined,
+                        onChange: onDraftChange,
+                      }),
+                      h(
+                        'button',
+                        { className: 'dsh-nr-add', type: 'submit', disabled: searching },
+                        submitLabel,
+                      ),
+                    ),
+                    h(
+                      'div',
+                      {
+                        className:
+                          'dsh-nr-browse-row' +
+                          (finderMode === 'browse' ? '' : ' dsh-nr-is-hidden'),
+                      },
+                      h(
+                        'select',
+                        {
+                          className: 'dsh-nr-country-select',
+                          value: countryCode,
+                          disabled: countriesLoading,
+                          'aria-label': t('countryLabel'),
+                          onChange: (event) => {
+                            state.stopPreview();
+                            if (searchAbortRef.current) {
+                              searchAbortRef.current.abort();
+                              searchAbortRef.current = null;
+                              setSearching(false);
+                            }
+                            const code = event.target.value;
+                            setCountryCode(code);
+                            setDraft('');
+                            setError('');
+                            setResults([]);
+                            setSearchError('');
+                            setResultLabel('');
+                            if (code) runCountry(code, sortBy, showAll);
+                          },
+                        },
+                        h(
+                          'option',
+                          { value: '' },
+                          countriesLoading ? t('countryLoading') : t('countryPlaceholder'),
+                        ),
+                        countries.map((country) =>
+                          h(
+                            'option',
+                            { key: country.code, value: country.code },
+                            country.name + (country.count ? ' (' + country.count + ')' : ''),
+                          ),
+                        ),
+                      ),
+                      countryCode
+                        ? h(
+                            'select',
+                            {
+                              className: 'dsh-nr-sort-select',
+                              value: sortBy,
+                              'aria-label': t('sortLabel'),
+                              onChange: (event) => changeSort(event.target.value),
+                            },
+                            [
+                              ['clickcount', t('sortClicks')],
+                              ['votes', t('sortVotes')],
+                              ['clicktrend', t('sortTrend')],
+                            ].map(([key, label]) =>
+                              h('option', { key, value: key }, label),
+                            ),
+                          )
+                        : null,
+                    ),
+                    finderMode === 'browse' && countryCode
+                      ? h(
+                          'label',
+                          { className: 'dsh-nr-all' },
+                          h('input', {
+                            type: 'checkbox',
+                            checked: showAll,
+                            onChange: (event) => {
+                              const next = event.target.checked;
+                              setShowAll(next);
+                              runCountry(countryCode, sortBy, next);
+                            },
+                          }),
+                          h('span', null, t('allStations')),
+                        )
+                      : null,
+                    finderMode === 'browse' && countriesError
+                      ? h('div', { className: 'dsh-nr-country-hint' }, t('countryError'))
+                      : null,
+                    error
+                      ? h('div', { className: 'dsh-nr-error', role: 'alert' }, error)
+                      : null,
+                    searching || searchError || results.length
+                      ? h(
+                          'div',
+                          { className: 'dsh-nr-search-panel', 'aria-label': t('searchResults') },
+                          searching
+                            ? h(
+                                'div',
+                                { className: 'dsh-nr-search-status', role: 'status' },
+                                t('searching'),
+                              )
+                            : searchError
+                              ? h(
+                                  'div',
+                                  { className: 'dsh-nr-search-status is-error', role: 'status' },
+                                  searchError,
+                                )
+                              : h(
+                                  React.Fragment,
+                                  null,
+                                  resultLabel
+                                    ? h(
+                                        'div',
+                                        { className: 'dsh-nr-search-heading' },
+                                        resultLabel,
+                                      )
+                                    : null,
+                                  results.map((station, index) => {
+                                    const meta = [
+                                      station.country,
+                                      station.bitrate ? station.bitrate + ' kbps' : '',
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' · ');
+                                    const isPreview = state.previewId === station.id;
+                                    const previewError =
+                                      isPreview && state.previewState === 'error';
+                                    return h(
+                                      'div',
+                                      {
+                                        key: station.id,
+                                        className:
+                                          'dsh-nr-result-row' +
+                                          (isPreview ? ' is-previewing' : ''),
+                                      },
+                                      h(
+                                        'button',
+                                        {
+                                          type: 'button',
+                                          className:
+                                            'dsh-nr-preview' +
+                                            (isPreview ? ' is-active' : '') +
+                                            (isPreview && state.previewState === 'loading'
+                                              ? ' is-loading'
+                                              : '') +
+                                            (previewError ? ' is-error' : ''),
+                                          'aria-label':
+                                            isPreview && !previewError
+                                              ? t('previewStop')
+                                              : t('previewPlay').replace(
+                                                  '{station}',
+                                                  station.name,
+                                                ),
+                                          'aria-pressed':
+                                            isPreview && !previewError ? 'true' : 'false',
+                                          onClick: () => {
+                                            if (isPreview && !previewError) {
+                                              state.stopPreview();
+                                            } else {
+                                              state.previewStation(station);
+                                            }
+                                          },
+                                        },
+                                        h(
+                                          'svg',
+                                          {
+                                            viewBox: '0 0 12 12',
+                                            width: 11,
+                                            height: 11,
+                                            fill: 'none',
+                                            'aria-hidden': 'true',
+                                            focusable: 'false',
+                                          },
+                                          isPreview && !previewError
+                                            ? h('rect', {
+                                                x: 2.5,
+                                                y: 2.5,
+                                                width: 7,
+                                                height: 7,
+                                                rx: 1.2,
+                                                fill: 'currentColor',
+                                              })
+                                            : h('path', {
+                                                d: 'M4 2.4 9.5 6 4 9.6Z',
+                                                fill: 'currentColor',
+                                              }),
+                                        ),
+                                      ),
+                                      h(
+                                        'button',
+                                        {
+                                          type: 'button',
+                                          className: 'dsh-nr-result',
+                                          'aria-label': t('searchAdd').replace(
+                                            '{station}',
+                                            station.name,
+                                          ),
+                                          title: t('searchAdd').replace(
+                                            '{station}',
+                                            station.name,
+                                          ),
+                                          onClick: () => addFound(station),
+                                        },
+                                        h(
+                                          'span',
+                                          {
+                                            className: 'dsh-nr-result-rank',
+                                            'aria-hidden': 'true',
+                                          },
+                                          String(index + 1),
+                                        ),
+                                        h(
+                                          'span',
+                                          { className: 'dsh-nr-result-main' },
+                                          h(
+                                            'span',
+                                            { className: 'dsh-nr-result-name' },
+                                            station.name,
+                                          ),
+                                          meta
+                                            ? h('span', { className: 'dsh-nr-result-meta' }, meta)
+                                            : null,
+                                        ),
+                                        h(
+                                          'span',
+                                          {
+                                            className: 'dsh-nr-result-plus',
+                                            'aria-hidden': 'true',
+                                          },
+                                          '+',
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                ),
+                        )
+                      : null,
+                  )
+                : h(
                     'button',
                     {
-                      className: 'dsh-nr-discover',
+                      ref: addToggleRef,
                       type: 'button',
-                      disabled: !countryCode || searching || countriesLoading,
-                      onClick: () => runCountry(countryCode),
+                      className: 'dsh-nr-add-toggle',
+                      'aria-expanded': false,
+                      onClick: openAdd,
                     },
-                    t('topTenButton'),
+                    h('span', { className: 'dsh-nr-plus', 'aria-hidden': 'true' }, '+'),
+                    t('addToggle'),
                   ),
-                ),
-                countryCode
-                  ? h(
-                      'div',
-                      { className: 'dsh-nr-sort-row' },
-                  h('span', { className: 'dsh-nr-sort-label' }, t('sortLabel')),
-                  [
-                    ['clickcount', t('sortClicks')],
-                    ['votes', t('sortVotes')],
-                    ['clicktrend', t('sortTrend')],
-                  ].map(([key, label]) =>
-                    h(
-                      'button',
-                      {
-                        key,
-                        type: 'button',
-                        className:
-                          'dsh-nr-sort' + (sortBy === key ? ' is-active' : ''),
-                        'aria-pressed': sortBy === key ? 'true' : 'false',
-                        onClick: () => changeSort(key),
-                      },
-                      label,
-                    ),
-                  ),
-                )
-                  : null,
-                countriesError
-                  ? h('div', { className: 'dsh-nr-country-hint' }, t('countryError'))
-                  : null,
-                searching || searchError || results.length
-                  ? h(
-                      'div',
-                      { className: 'dsh-nr-search-panel', 'aria-label': t('searchResults') },
-                      searching
-                        ? h(
-                            'div',
-                            { className: 'dsh-nr-search-status', role: 'status' },
-                            t('searching'),
-                          )
-                        : searchError
-                          ? h(
-                              'div',
-                              { className: 'dsh-nr-search-status is-error', role: 'status' },
-                              searchError,
-                            )
-                          : h(
-                              React.Fragment,
-                              null,
-                              resultLabel
-                                ? h(
-                                    'div',
-                                    { className: 'dsh-nr-search-heading' },
-                                    resultLabel,
-                                  )
-                                : null,
-                              results.map((station, index) => {
-                                const meta = [
-                                  station.country,
-                                  station.bitrate ? station.bitrate + ' kbps' : '',
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ');
-                                const isPreview = state.previewId === station.id;
-                                const previewError =
-                                  isPreview && state.previewState === 'error';
-                                return h(
-                                  'div',
-                                  {
-                                    key: station.id,
-                                    className:
-                                      'dsh-nr-result-row' +
-                                      (isPreview ? ' is-previewing' : ''),
-                                  },
-                                  h(
-                                    'button',
-                                    {
-                                      type: 'button',
-                                      className:
-                                        'dsh-nr-preview' +
-                                        (isPreview ? ' is-active' : '') +
-                                        (isPreview && state.previewState === 'loading'
-                                          ? ' is-loading'
-                                          : '') +
-                                        (previewError ? ' is-error' : ''),
-                                      'aria-label':
-                                        isPreview && !previewError
-                                          ? t('previewStop')
-                                          : t('previewPlay').replace(
-                                              '{station}',
-                                              station.name,
-                                            ),
-                                      'aria-pressed':
-                                        isPreview && !previewError ? 'true' : 'false',
-                                      onClick: () => {
-                                        if (isPreview && !previewError) {
-                                          state.stopPreview();
-                                        } else {
-                                          state.previewStation(station);
-                                        }
-                                      },
-                                    },
-                                    h(
-                                      'svg',
-                                      {
-                                        viewBox: '0 0 12 12',
-                                        width: 11,
-                                        height: 11,
-                                        fill: 'none',
-                                        'aria-hidden': 'true',
-                                        focusable: 'false',
-                                      },
-                                      isPreview && !previewError
-                                        ? h('rect', {
-                                            x: 2.5,
-                                            y: 2.5,
-                                            width: 7,
-                                            height: 7,
-                                            rx: 1.2,
-                                            fill: 'currentColor',
-                                          })
-                                        : h('path', {
-                                            d: 'M4 2.4 9.5 6 4 9.6Z',
-                                            fill: 'currentColor',
-                                          }),
-                                    ),
-                                  ),
-                                  h(
-                                    'button',
-                                    {
-                                      type: 'button',
-                                      className: 'dsh-nr-result',
-                                      'aria-label': t('searchAdd').replace(
-                                        '{station}',
-                                        station.name,
-                                      ),
-                                      title: t('searchAdd').replace('{station}', station.name),
-                                      onClick: () => addFound(station),
-                                    },
-                                    h(
-                                      'span',
-                                      {
-                                        className: 'dsh-nr-result-rank',
-                                        'aria-hidden': 'true',
-                                      },
-                                      String(index + 1),
-                                    ),
-                                    h(
-                                      'span',
-                                      { className: 'dsh-nr-result-main' },
-                                      h(
-                                        'span',
-                                        { className: 'dsh-nr-result-name' },
-                                        station.name,
-                                      ),
-                                      meta
-                                        ? h('span', { className: 'dsh-nr-result-meta' }, meta)
-                                        : null,
-                                    ),
-                                    h(
-                                      'span',
-                                      {
-                                        className: 'dsh-nr-result-plus',
-                                        'aria-hidden': 'true',
-                                      },
-                                      '+',
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
-                    )
-                  : null,
-              )
-            : h(
-                'button',
-                {
-                  ref: addToggleRef,
-                  type: 'button',
-                  className: 'dsh-nr-add-toggle',
-                  'aria-expanded': false,
-                  onClick: openAdd,
-                },
-                h('span', { className: 'dsh-nr-plus', 'aria-hidden': 'true' }, '+'),
-                t('addToggle'),
-              ),
-          h(
-            'div',
-            { className: error ? 'dsh-nr-error' : 'dsh-nr-row-hint', role: error ? 'alert' : undefined },
-            error || (adding ? t('addHint') : t('hint')),
+            ),
           ),
         ),
       );
