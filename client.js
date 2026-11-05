@@ -2073,16 +2073,26 @@ window.__ModuleLoader__.load({
     }
 
     function makeRain(w, h) {
-      const count = Math.min(180, Math.max(80, Math.round(w / 8)));
+      const count = Math.min(230, Math.max(120, Math.round(w / 6.5)));
+      const layers = [
+        { end: 0.52, speed: [410, 660], len: [0.018, 0.036], a: [0.06, 0.15], width: 0.75 },
+        { end: 0.86, speed: [640, 930], len: [0.03, 0.06], a: [0.13, 0.27], width: 1.15 },
+        { end: 1, speed: [900, 1260], len: [0.052, 0.098], a: [0.22, 0.4], width: 1.85 },
+      ];
       const drops = [];
       for (let index = 0; index < count; index += 1) {
+        const roll = Math.random();
+        const layer = roll < 0.52 ? 0 : roll < 0.86 ? 1 : 2;
+        const config = layers[layer];
         drops.push({
           x: Math.random(),
           y: Math.random(),
-          speed: 520 + Math.random() * 380,
-          wind: -30 + Math.random() * 60,
-          len: 0.025 + Math.random() * 0.04,
-          a: 0.16 + Math.random() * 0.28,
+          layer,
+          speed: config.speed[0] + Math.random() * (config.speed[1] - config.speed[0]),
+          wind: (-30 + Math.random() * 60) * (1 + layer * 0.35),
+          len: config.len[0] + Math.random() * (config.len[1] - config.len[0]),
+          a: config.a[0] + Math.random() * (config.a[1] - config.a[0]),
+          width: config.width * (0.85 + Math.random() * 0.3),
         });
       }
       return drops;
@@ -2142,6 +2152,8 @@ window.__ModuleLoader__.load({
         let previousWeather = null;
         let weatherMix = 1;
         let snowCover = 0;
+        let rainSplashes = [];
+        let rainRipples = [];
         let pointerX = 0.5;
         let pointerY = 0.42;
         let easedX = 0.5;
@@ -2421,6 +2433,33 @@ window.__ModuleLoader__.load({
           g.globalCompositeOperation = light ? 'source-over' : 'lighter';
         }
 
+        function spawnRainSplash(x, layer, intensity, light) {
+          if (rainSplashes.length > 90) return;
+          const count = layer === 2 ? 2 : 1;
+          for (let index = 0; index < count; index += 1) {
+            rainSplashes.push({
+              x: x + (Math.random() - 0.5) * 0.014,
+              y: 0.945,
+              vx: (Math.random() - 0.5) * 0.055,
+              vy: -(0.018 + Math.random() * 0.025),
+              life: 1,
+              decay: 1 / (0.24 + Math.random() * 0.22),
+              r: (0.55 + Math.random() * 0.9) * (layer === 2 ? 1.2 : 1),
+              light,
+            });
+          }
+          if (rainRipples.length < 18 && Math.random() < 0.28 * (0.4 + intensity)) {
+            rainRipples.push({
+              x,
+              y: 0.945,
+              life: 1,
+              decay: 1 / (0.45 + Math.random() * 0.35),
+              size: 1.2 + Math.random() * 2.2,
+              light,
+            });
+          }
+        }
+
         function drawWeather(now, dt, currentWeather, light, opacity, advance) {
           if (!currentWeather || opacity <= 0.01) return;
           const kind = effectiveWeatherKind(currentWeather);
@@ -2444,38 +2483,108 @@ window.__ModuleLoader__.load({
             const intensity = weatherIntensity(currentWeather);
             const active = Math.min(
               rainDrops.length,
-              Math.max(24, Math.round(rainDrops.length * (0.3 + 0.7 * intensity))),
+              Math.max(30, Math.round(rainDrops.length * (0.32 + 0.68 * intensity))),
             );
             const step = dt > 0 ? Math.min(48, dt) / 1000 : 0;
-            const wind = weatherWindX(currentWeather);
+            const gust = 0.84 + 0.16 * Math.sin(now * 0.00035 + 1.7);
+            const wind = weatherWindX(currentWeather) * gust;
             const color = light ? '55,82,120' : '178,210,242';
+            const flash = lightningAt
+              ? Math.max(0, 1 - Math.max(0, now - lightningAt) / 180)
+              : 0;
+            const headColor = !light && flash > 0.05 ? '235,245,255' : color;
             g.save();
             g.globalCompositeOperation = 'source-over';
             g.strokeStyle = 'rgba(' + color + ',1)';
-            g.lineWidth = light ? 1.1 : 1.25;
             g.lineCap = 'round';
             for (let index = 0; index < active; index += 1) {
               const drop = rainDrops[index];
               if (step > 0 && advance) {
+                const before = drop.y;
                 drop.y += (drop.speed * step) / h;
                 drop.x += ((drop.wind * 0.2 + wind) * step) / w;
+                if (
+                  before <= 0.94 &&
+                  drop.y > 0.94 &&
+                  Math.random() < 0.35 + intensity * 0.35
+                ) {
+                  spawnRainSplash(drop.x, drop.layer, intensity, light);
+                }
                 if (drop.y > 1.05) drop.y = ((drop.y + 0.05) % 1.1) - 0.05;
                 if (drop.x < -0.05) drop.x = 1.05;
                 else if (drop.x > 1.05) drop.x = -0.05;
               }
               const x = drop.x * w;
               const y = drop.y * h;
-              g.globalAlpha =
-                drop.a * (0.55 + 0.45 * intensity) * (light ? 0.85 : 1) * opacity;
+              const x2 = x - (drop.wind * 0.2 + wind) * 0.08;
+              const y2 = y + drop.len * h;
+              const headX = x + (x2 - x) * 0.56;
+              const headY = y + (y2 - y) * 0.56;
+              const topFade = Math.min(1, Math.max(0, (drop.y - 0.015) / 0.09));
+              const centerFade =
+                0.78 + 0.22 * Math.min(1, Math.abs(drop.x - 0.5) / 0.36);
+              const baseAlpha =
+                drop.a *
+                (0.45 + 0.55 * intensity) *
+                (light ? 0.9 : 1) *
+                topFade *
+                centerFade *
+                opacity;
+              g.lineWidth = Math.max(0.5, drop.width * (light ? 0.9 : 1));
+              g.globalAlpha = Math.min(1, baseAlpha * 0.36);
+              g.strokeStyle = 'rgba(' + color + ',1)';
               g.beginPath();
               g.moveTo(x, y);
-              g.lineTo(x - (drop.wind * 0.2 + wind) * 0.08, y + drop.len * h);
+              g.lineTo(headX, headY);
               g.stroke();
-              if (index % 5 === 0 && drop.y > 0.72) {
-                g.globalAlpha =
-                  drop.a * (0.45 + 0.4 * intensity) * (light ? 0.65 : 0.55) * opacity;
+              g.globalAlpha = Math.min(1, baseAlpha * (flash > 0.05 ? 1.3 : 1));
+              g.strokeStyle = 'rgba(' + headColor + ',1)';
+              g.beginPath();
+              g.moveTo(headX, headY);
+              g.lineTo(x2, y2);
+              g.stroke();
+            }
+
+            if (advance && step > 0) {
+              for (const splash of rainSplashes) {
+                splash.x += splash.vx * step;
+                splash.y += splash.vy * step;
+                splash.vy += 0.14 * step;
+                splash.life -= splash.decay * step;
+              }
+              rainSplashes = rainSplashes.filter((splash) => splash.life > 0);
+              for (const ripple of rainRipples) {
+                ripple.life -= ripple.decay * step;
+              }
+              rainRipples = rainRipples.filter((ripple) => ripple.life > 0);
+            }
+            if (advance && rainSplashes.length) {
+              const splashColor = light ? '55,82,120' : '210,232,255';
+              g.fillStyle = 'rgba(' + splashColor + ',1)';
+              for (const splash of rainSplashes) {
+                g.globalAlpha = Math.max(0, splash.life) * opacity * (light ? 0.55 : 0.75);
                 g.beginPath();
-                g.ellipse(x, y + drop.len * h * 0.9, 1.7, 0.6, 0, 0, TAU);
+                g.arc(splash.x * w, splash.y * h, splash.r, 0, TAU);
+                g.fill();
+              }
+            }
+            if (advance && rainRipples.length) {
+              const splashColor = light ? '55,82,120' : '210,232,255';
+              g.strokeStyle = 'rgba(' + splashColor + ',1)';
+              g.lineWidth = 0.8;
+              for (const ripple of rainRipples) {
+                const grow = 1 + (1 - ripple.life) * 4;
+                g.globalAlpha = Math.max(0, ripple.life) * opacity * 0.3;
+                g.beginPath();
+                g.ellipse(
+                  ripple.x * w,
+                  ripple.y * h,
+                  ripple.size * grow,
+                  Math.max(0.7, ripple.size * 0.3 * grow),
+                  0,
+                  0,
+                  TAU,
+                );
                 g.stroke();
               }
             }
