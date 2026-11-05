@@ -132,6 +132,16 @@
             "commit": "25937db08e46dc492eab8197a36d8b8a90e06f1f"
           },
           "engines": {}
+        },
+        {
+          "version": "1.4.0",
+          "publishTimestamp": 1793875900,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/sudo-catz/dsh-nebula",
+            "commit": "d05e7489b0fa8baf024acd763183b567fe0020a0"
+          },
+          "engines": {}
         }
       ]
     }
