@@ -44,7 +44,7 @@
         "en": "Nebula"
       },
       "description": {
-        "en": "An ambient aurora and starfield, a time-aware sky with live weather and moonrise/set, a deep-space theme, and a Radio Garden station player in one package, with composer toggles, saved stations, volume, and OS media controls."
+        "en": "An ambient aurora and starfield, a time-aware sky with live weather and next-event moonrise/set, a deep-space theme, and a Radio Garden + Radio Browser station player, with preview, country rankings, and saved stations."
       },
       "icon": "../icon.svg",
       "author": "sudo-catz",
@@ -100,6 +100,16 @@
             "type": "git",
             "url": "https://github.com/sudo-catz/dsh-nebula",
             "commit": "4c1472262962da11b094d9a671dea352754242b8"
+          },
+          "engines": {}
+        },
+        {
+          "version": "1.3.0",
+          "publishTimestamp": 1793856517,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/sudo-catz/dsh-nebula",
+            "commit": "ed871f88dc0129111268a738c4c721a178d61447"
           },
           "engines": {}
         }
