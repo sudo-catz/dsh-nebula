@@ -89,6 +89,8 @@ window.__ModuleLoader__.load({
       weatherSnow: 'Snow',
       weatherStorm: 'Thunderstorm',
       weatherOff: 'Weather off',
+      collapseSection: 'Collapse section',
+      expandSection: 'Expand section',
       weatherPending: 'Weather —',
       weatherCloud: 'cloud',
       accentLabel: 'Sky accent',
@@ -115,6 +117,9 @@ window.__ModuleLoader__.load({
       moonUpAtMidnight: 'Up at midnight',
       moonUpAllDay: 'Up all day',
       moonBelow: 'Below horizon',
+      moonToday: 'today',
+      moonTomorrow: 'tomorrow',
+      moonInDays: 'in {days} days',
       skyHint: 'Drag the strip to preview any hour. Live returns to the clock.',
       skyHintPreview: 'Previewing {phase} at {time}. Live returns to the clock.',
       skyHintFixed: 'Fixed palette. Turn Follow the clock on above to follow the day.',
@@ -265,6 +270,42 @@ window.__ModuleLoader__.load({
   transform: translateX(-50%);
   background: currentColor;
   opacity: 0.55;
+}
+.dsh-section-collapse {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.dsh-section-collapse:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+.dsh-section-collapse:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.dsh-section-collapse svg {
+  display: block;
+  transition: transform 160ms ease;
+}
+.dsh-section-collapse.is-open svg { transform: rotate(180deg); }
+.dsh-sky-row.is-collapsed > :not(.dsh-sky-head) { display: none; }
+.dsh-nr-row.is-collapsed > :not(.dsh-nr-row-head) { display: none; }
+.dsh-nr-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .dsh-sky-head-right {
   display: flex;
@@ -689,15 +730,43 @@ window.__ModuleLoader__.load({
       );
     }
 
+    const ACCENT_KEYFRAMES = [
+      { minute: 0, color: '#a8baff' },
+      { minute: 300, color: '#a8baff' },
+      { minute: 360, color: '#f2b56b' },
+      { minute: 480, color: '#8fd3ff' },
+      { minute: 720, color: '#a6dcff' },
+      { minute: 930, color: '#f0c06a' },
+      { minute: 1050, color: '#f49a7f' },
+      { minute: 1140, color: '#c9a6ff' },
+      { minute: 1230, color: '#a8baff' },
+      { minute: 1440, color: '#a8baff' },
+    ];
+
+    function mixHexColor(from, to, ratio) {
+      const parse = (hex) => {
+        const value = parseInt(String(hex).replace('#', ''), 16);
+        return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+      };
+      const a = parse(from);
+      const b = parse(to);
+      const channel = (index) =>
+        Math.round(a[index] + (b[index] - a[index]) * ratio)
+          .toString(16)
+          .padStart(2, '0');
+      return '#' + channel(0) + channel(1) + channel(2);
+    }
+
     function accentForMinute(minute) {
       const stamp = ((minute % 1440) + 1440) % 1440;
-      if (stamp < 300) return '#a8baff';
-      if (stamp < 420) return '#f2b56b';
-      if (stamp < 690) return '#8fd3ff';
-      if (stamp < 930) return '#a6dcff';
-      if (stamp < 1050) return '#f0c06a';
-      if (stamp < 1140) return '#f49a7f';
-      if (stamp < 1230) return '#c9a6ff';
+      for (let index = 0; index < ACCENT_KEYFRAMES.length - 1; index += 1) {
+        const from = ACCENT_KEYFRAMES[index];
+        const to = ACCENT_KEYFRAMES[index + 1];
+        if (stamp >= from.minute && stamp <= to.minute) {
+          const span = Math.max(1, to.minute - from.minute);
+          return mixHexColor(from.color, to.color, (stamp - from.minute) / span);
+        }
+      }
       return '#a8baff';
     }
 
@@ -1710,6 +1779,29 @@ window.__ModuleLoader__.load({
       return moonTimesMemo;
     }
 
+    function nextMoonEvent(location, now = new Date()) {
+      if (!location) return null;
+      const current = moonAltitude(location, now);
+      if (!current) return null;
+      const want = current.altitude > MOON_HORIZON_DEG ? 'set' : 'rise';
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      for (let offset = 0; offset < 3; offset += 1) {
+        const base = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate() + offset,
+        );
+        const times = moonTimes(location, base);
+        const minute = times && times[want];
+        if (minute == null) continue;
+        const event = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+        event.setMinutes(Math.round(minute));
+        if (event.getTime() <= now.getTime()) continue;
+        return { kind: want, minute: Math.round(minute), date: event, dayOffset: offset };
+      }
+      return null;
+    }
+
     function pad2(value) {
       return (value < 10 ? '0' : '') + value;
     }
@@ -2049,6 +2141,7 @@ window.__ModuleLoader__.load({
         let shownWeather = weatherEnabled ? weather : null;
         let previousWeather = null;
         let weatherMix = 1;
+        let snowCover = 0;
         let pointerX = 0.5;
         let pointerY = 0.42;
         let easedX = 0.5;
@@ -2126,7 +2219,7 @@ window.__ModuleLoader__.load({
           g.restore();
         }
 
-        function drawClouds(now, px, py, sky, light, weather) {
+        function drawClouds(now, px, py, sky, light, weather, opacity = 1) {
           if (!sky || !clouds.length) return;
           const tint = light ? shadeColor(sky.colors[0], 0.45) : sky.colors[0];
           const rawCover = weather
@@ -2182,7 +2275,7 @@ window.__ModuleLoader__.load({
             g.translate(x, y);
             g.scale((cloud.rx * w) / radius, 1);
             const grad = g.createRadialGradient(0, 0, 0, 0, 0, radius);
-            const alpha = cloud.a * alphaScale * (light ? 1.3 : 1);
+            const alpha = cloud.a * alphaScale * (light ? 1.3 : 1) * opacity;
             grad.addColorStop(0, 'rgba(' + tint + ',' + alpha + ')');
             grad.addColorStop(0.55, 'rgba(' + tint + ',' + alpha * 0.45 + ')');
             grad.addColorStop(1, 'rgba(' + tint + ',0)');
@@ -2194,8 +2287,14 @@ window.__ModuleLoader__.load({
 
           if (weather && cover > 0.45) {
             const veil = g.createLinearGradient(0, 0, 0, h * 0.72);
-            veil.addColorStop(0, 'rgba(' + tint + ',' + (0.015 + cover * 0.055) + ')');
-            veil.addColorStop(0.58, 'rgba(' + tint + ',' + (0.008 + cover * 0.03) + ')');
+            veil.addColorStop(
+              0,
+              'rgba(' + tint + ',' + (0.015 + cover * 0.055) * opacity + ')',
+            );
+            veil.addColorStop(
+              0.58,
+              'rgba(' + tint + ',' + (0.008 + cover * 0.03) * opacity + ')',
+            );
             veil.addColorStop(1, 'rgba(' + tint + ',0)');
             g.save();
             g.globalCompositeOperation = 'source-over';
@@ -2372,6 +2471,13 @@ window.__ModuleLoader__.load({
               g.moveTo(x, y);
               g.lineTo(x - (drop.wind * 0.2 + wind) * 0.08, y + drop.len * h);
               g.stroke();
+              if (index % 5 === 0 && drop.y > 0.72) {
+                g.globalAlpha =
+                  drop.a * (0.45 + 0.4 * intensity) * (light ? 0.65 : 0.55) * opacity;
+                g.beginPath();
+                g.ellipse(x, y + drop.len * h * 0.9, 1.7, 0.6, 0, 0, TAU);
+                g.stroke();
+              }
             }
             g.restore();
           }
@@ -2398,6 +2504,31 @@ window.__ModuleLoader__.load({
               g.beginPath();
               g.arc(flake.x * w, flake.y * h, flake.r, 0, TAU);
               g.fill();
+            }
+            if (advance && dt > 0) {
+              const amount = Math.max(0, Number(currentWeather.snowfall) || 0);
+              snowCover = Math.min(
+                1,
+                snowCover + (dt / 45000) * (0.35 + amount * 0.35),
+              );
+            }
+            if (snowCover > 0.01) {
+              const tint = light ? '88,108,140' : '238,246,255';
+              const band = h * (0.025 + 0.055 * snowCover);
+              const top = h - band;
+              g.globalAlpha = opacity;
+              const drift = g.createLinearGradient(0, top, 0, h);
+              drift.addColorStop(0, 'rgba(' + tint + ',0)');
+              drift.addColorStop(
+                0.45,
+                'rgba(' + tint + ',' + (0.03 + snowCover * 0.055) + ')',
+              );
+              drift.addColorStop(
+                1,
+                'rgba(' + tint + ',' + (0.06 + snowCover * 0.1) + ')',
+              );
+              g.fillStyle = drift;
+              g.fillRect(0, top, w, band);
             }
             g.restore();
           }
@@ -2458,8 +2589,12 @@ window.__ModuleLoader__.load({
             shownWeather = targetWeather;
             weatherMix = 0;
           }
-          if (dt > 0) weatherMix = Math.min(1, weatherMix + dt / 900);
-          else weatherMix = 1;
+          if (dt > 0) {
+            weatherMix = Math.min(1, weatherMix + dt / 900);
+            snowCover = Math.max(0, snowCover - dt / 180000);
+          } else {
+            weatherMix = 1;
+          }
           const currentWeather = shownWeather;
           const auroraFactor = auroraKp
             ? 0.85 + (Math.min(9, Math.max(0, auroraKp.kp)) / 9) * 0.5
@@ -2621,7 +2756,10 @@ window.__ModuleLoader__.load({
           g.globalAlpha = 1;
 
           if (sky) {
-            drawClouds(now, px, py, sky, light, currentWeather);
+            if (previousWeather && weatherMix < 1) {
+              drawClouds(now, px, py, sky, light, previousWeather, 1 - weatherMix);
+            }
+            drawClouds(now, px, py, sky, light, currentWeather, weatherMix);
             g.globalCompositeOperation = light ? 'source-over' : 'lighter';
           }
 
@@ -2967,6 +3105,13 @@ window.__ModuleLoader__.load({
       const location = resolveSkyLocation(geo);
       const southern = !!(location && location.lat < 0);
       const [minute, setMinute] = useState(() => minuteOfDay());
+      const [expanded, setExpanded] = useState(() => {
+        try {
+          return window.localStorage.getItem('dsh.nebula-sky.expanded') !== '0';
+        } catch {
+          return true;
+        }
+      });
       const dragging = useRef(false);
       const stripRef = useRef(null);
 
@@ -3008,28 +3153,33 @@ window.__ModuleLoader__.load({
         .replace('{time}', clockTime(shownMinute));
       const marker = Math.min(99.4, Math.max(0.6, (shownMinute / 1440) * 100));
       const moon = moonPhase();
-      const moonWindow = location ? moonTimes(location) : null;
-      const moonWindowParts = [];
-      if (moonWindow) {
-        if (moonWindow.rise != null) {
-          moonWindowParts.push(t('moonRises') + ' ' + clockTime(moonWindow.rise));
-        }
-        if (moonWindow.set != null) {
-          moonWindowParts.push(t('moonSets') + ' ' + clockTime(moonWindow.set));
-        }
-        if (moonWindow.rise == null && moonWindow.upAtStart) {
-          moonWindowParts.push(t('moonUpAtMidnight'));
-        }
-        if (moonWindowParts.length === 0) {
-          moonWindowParts.push(t(moonWindow.up ? 'moonUpAllDay' : 'moonBelow'));
-        }
+      const nextMoon = location ? nextMoonEvent(location) : null;
+      let moonEvent = '';
+      if (nextMoon) {
+        const day =
+          nextMoon.dayOffset === 0
+            ? t('moonToday')
+            : nextMoon.dayOffset === 1
+              ? t('moonTomorrow')
+              : t('moonInDays').replace('{days}', String(nextMoon.dayOffset));
+        moonEvent =
+          t(nextMoon.kind === 'rise' ? 'moonRises' : 'moonSets') +
+          ' ' +
+          clockTime(nextMoon.minute) +
+          ' ' +
+          day;
+      } else if (location) {
+        const altitude = moonAltitude(location, new Date());
+        moonEvent = t(
+          altitude && altitude.altitude > MOON_HORIZON_DEG ? 'moonUpAllDay' : 'moonBelow',
+        );
       }
       const moonLabel =
         t(moon.key) +
         ' ' +
         moon.illumination +
         '%' +
-        (moonWindowParts.length ? ' · ' + moonWindowParts.join(' · ') : '');
+        (moonEvent ? ' · ' + moonEvent : '');
       const weatherKindNow = currentWeather ? effectiveWeatherKind(currentWeather) : null;
       const weatherLabel = h(
         React.Fragment,
@@ -3160,7 +3310,10 @@ window.__ModuleLoader__.load({
         h('style', { key: 'style' }, CSS),
         h(
           'div',
-          { key: 'row', className: 'dsh-sky-row' },
+          {
+            key: 'row',
+            className: 'dsh-sky-row' + (expanded ? '' : ' is-collapsed'),
+          },
           h(
             'div',
             { className: 'dsh-sky-head' },
@@ -3206,6 +3359,45 @@ window.__ModuleLoader__.load({
                     },
                     t('skyLive'),
                   ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className:
+                    'dsh-section-collapse' + (expanded ? ' is-open' : ''),
+                  'aria-label': t(expanded ? 'collapseSection' : 'expandSection'),
+                  'aria-expanded': expanded ? 'true' : 'false',
+                  title: t(expanded ? 'collapseSection' : 'expandSection'),
+                  onClick: () => {
+                    const next = !expanded;
+                    setExpanded(next);
+                    try {
+                      window.localStorage.setItem(
+                        'dsh.nebula-sky.expanded',
+                        next ? '1' : '0',
+                      );
+                    } catch {
+                      /* Session only. */
+                    }
+                  },
+                },
+                h(
+                  'svg',
+                  {
+                    viewBox: '0 0 12 12',
+                    width: 10,
+                    height: 10,
+                    fill: 'none',
+                    stroke: 'currentColor',
+                    strokeWidth: 1.5,
+                    strokeLinecap: 'round',
+                    strokeLinejoin: 'round',
+                    'aria-hidden': 'true',
+                    focusable: 'false',
+                  },
+                  h('path', { d: 'M3 4.5 6 7.5 9 4.5' }),
+                ),
+              ),
             ),
           ),
           h(
@@ -3777,6 +3969,8 @@ window.__ModuleLoader__.load({
       addInvalid: 'Use a radio.garden/listen/… URL, or search by station name.',
       addDuplicate: 'That station is already in the list.',
       addLimit: 'You can save up to 20 stations.',
+      collapseSection: 'Collapse section',
+      expandSection: 'Expand section',
     };
 
     const CSS = `
@@ -5861,6 +6055,13 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState('');
       const [error, setError] = useState('');
       const [adding, setAdding] = useState(false);
+      const [expanded, setExpanded] = useState(() => {
+        try {
+          return window.localStorage.getItem('dsh.nebula-station.expanded') !== '0';
+        } catch {
+          return true;
+        }
+      });
       const [results, setResults] = useState([]);
       const [searching, setSearching] = useState(false);
       const [searchError, setSearchError] = useState('');
@@ -6250,12 +6451,59 @@ window.__ModuleLoader__.load({
         h('style', { key: 'css' }, CSS),
         h(
           'div',
-          { key: 'row', className: 'dsh-nr-row' },
+          {
+            key: 'row',
+            className: 'dsh-nr-row' + (expanded ? '' : ' is-collapsed'),
+          },
           h(
             'div',
             { className: 'dsh-nr-row-head' },
             h('div', { className: 'dsh-nr-row-title' }, t('title')),
-            h('div', { className: stateClass, 'aria-live': 'polite' }, status),
+            h(
+              'div',
+              { className: 'dsh-nr-head-right' },
+              h('div', { className: stateClass, 'aria-live': 'polite' }, status),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className:
+                    'dsh-section-collapse' + (expanded ? ' is-open' : ''),
+                  'aria-label': t(expanded ? 'collapseSection' : 'expandSection'),
+                  'aria-expanded': expanded ? 'true' : 'false',
+                  title: t(expanded ? 'collapseSection' : 'expandSection'),
+                  onClick: () => {
+                    const next = !expanded;
+                    if (!next) state.stopPreview();
+                    setExpanded(next);
+                    try {
+                      window.localStorage.setItem(
+                        'dsh.nebula-station.expanded',
+                        next ? '1' : '0',
+                      );
+                    } catch {
+                      /* Session only. */
+                    }
+                  },
+                },
+                h(
+                  'svg',
+                  {
+                    viewBox: '0 0 12 12',
+                    width: 10,
+                    height: 10,
+                    fill: 'none',
+                    stroke: 'currentColor',
+                    strokeWidth: 1.5,
+                    strokeLinecap: 'round',
+                    strokeLinejoin: 'round',
+                    'aria-hidden': 'true',
+                    focusable: 'false',
+                  },
+                  h('path', { d: 'M3 4.5 6 7.5 9 4.5' }),
+                ),
+              ),
+            ),
           ),
           h(
             'div',

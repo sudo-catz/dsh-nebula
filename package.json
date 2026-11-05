@@ -1,6 +1,6 @@
 {
   "name": "dsh-nebula",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "module",
   "description": "Nebula: an aurora and a time-aware sky with live weather, a deep-space theme, and a Radio Garden station player for the DeepSeek Harness Web UI.",
   "license": "MIT",
@@ -27,7 +27,8 @@
     "web-ui",
     "weather",
     "moon",
-    "noaa"
+    "noaa",
+    "radio-browser"
   ],
   "exports": {
     ".": "./index.js",
