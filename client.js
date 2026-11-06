@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     function createAmbience(themeApi) {
     const React = require('react');
     const h = React.createElement;
-    const { useEffect, useReducer, useRef, useState } = React;
+    const { useEffect, useLayoutEffect, useReducer, useRef, useState } = React;
 
     const NS = 'nebula-ambience';
     const SKY_KEY = 'dsh.nebula-sky.enabled';
@@ -144,6 +144,11 @@ window.__ModuleLoader__.load({
     };
 
     const CSS = `
+.dsh-nebula-canvas-host {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
 .dsh-nebula-canvas {
   position: fixed;
   inset: 0;
@@ -1323,6 +1328,13 @@ window.__ModuleLoader__.load({
       if (kind === 'fog') return 'weatherFog';
       if (kind === 'storm') return 'weatherStorm';
       if (kind === 'snow') return 'weatherSnow';
+      if (kind === 'rain') {
+        // The API can report measurable rain while its current weather code is
+        // still "overcast". The effect already renders rain in that case, so
+        // the label must not keep saying Overcast.
+        const codeKey = weatherConditionKey(currentWeather.code);
+        return codeKey === 'weatherDrizzle' ? 'weatherDrizzle' : 'weatherRain';
+      }
       return weatherConditionKey(currentWeather.code);
     }
 
@@ -2484,14 +2496,34 @@ window.__ModuleLoader__.load({
       return flakes;
     }
 
+    // Keep the generated sky across remounts/re-renders of the shell overlay.
+    // Re-seeding stars/clouds here caused a brief whole-sky jump during chat
+    // updates even when no weather or theme state changed.
+    let nebulaSkyCache = null;
+    let sharedSkyCanvas = null;
+
     function NebulaLayer() {
       const on = useAmbienceEnabled();
-      const canvasRef = useRef(null);
+      const canvasHostRef = useRef(null);
 
-      useEffect(() => {
+      // Draw before the browser paints. With useEffect, a remount during a
+      // chat update could paint one blank canvas frame before the sky was
+      // rendered, which looked like a brief sky flash.
+      useLayoutEffect(() => {
         if (!on) return undefined;
-        const canvas = canvasRef.current;
-        if (!canvas) return undefined;
+        const host = canvasHostRef.current;
+        if (!host) return undefined;
+        let canvas = sharedSkyCanvas;
+        if (!canvas) {
+          canvas = document.createElement('canvas');
+          canvas.className = 'dsh-nebula-canvas';
+          canvas.setAttribute('aria-hidden', 'true');
+          sharedSkyCanvas = canvas;
+        }
+        if (canvas.parentNode !== host) {
+          if (typeof host.replaceChildren === 'function') host.replaceChildren(canvas);
+          else host.appendChild(canvas);
+        }
         const g = canvas.getContext('2d');
         if (!g) return undefined;
 
@@ -2531,8 +2563,41 @@ window.__ModuleLoader__.load({
 
         function resize() {
           dpr = Math.min(window.devicePixelRatio || 1, 2);
-          w = Math.max(1, window.innerWidth || 1);
-          h = Math.max(1, window.innerHeight || 1);
+          const nextW = Math.max(1, window.innerWidth || 1);
+          const nextH = Math.max(1, window.innerHeight || 1);
+          const cached = nebulaSkyCache;
+          if (
+            cached &&
+            cached.dpr === dpr &&
+            cached.w === nextW &&
+            cached.h === nextH
+          ) {
+            w = nextW;
+            h = nextH;
+            canvas.width = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
+            g.setTransform(dpr, 0, 0, dpr, 0, 0);
+            stars = cached.stars;
+            milkyStars = cached.milkyStars;
+            clouds = cached.clouds;
+            rainDrops = cached.rainDrops;
+            snowFlakes = cached.snowFlakes;
+            return;
+          }
+          // Chat updates can toggle the scrollbar, changing innerWidth by
+          // about 15px and firing resize. Resizing the canvas there cleared it
+          // and shifted/re-seeded the whole sky, which looked like a flash.
+          // Ignore small size changes; a real window resize still rebuilds.
+          if (
+            stars.length &&
+            clouds.length &&
+            Math.abs(nextW - w) <= 24 &&
+            Math.abs(nextH - h) <= 24
+          ) {
+            return;
+          }
+          w = nextW;
+          h = nextH;
           canvas.width = Math.round(w * dpr);
           canvas.height = Math.round(h * dpr);
           g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2541,6 +2606,7 @@ window.__ModuleLoader__.load({
           clouds = makeClouds(w, h);
           rainDrops = makeRain(w, h);
           snowFlakes = makeSnow(w, h);
+          nebulaSkyCache = { w, h, dpr, stars, milkyStars, clouds, rainDrops, snowFlakes };
         }
 
         function spawnMeteor() {
@@ -3326,7 +3392,13 @@ window.__ModuleLoader__.load({
         }
 
         function drawStill() {
-          draw(4200, 0);
+          // Never paint a synthetic-time still over a live animation loop.
+          // drawStill uses a fixed time for the reduced-motion frame; dropping
+          // that frame into a running loop shows an out-of-phase sky for one
+          // compositor frame, which reads as a brief whole-sky glitch.
+          if (!visible) return;
+          if (!reduced() && raf) return;
+          draw(reduced() ? 4200 : performance.now(), 0);
         }
         requestStaticRedraw = drawStill;
 
@@ -3337,7 +3409,10 @@ window.__ModuleLoader__.load({
 
         function onResize() {
           resize();
-          drawStill();
+          // Resizing the backing store clears the canvas, so this one cannot
+          // wait for the next animation frame. A tiny dt keeps an in-flight
+          // weather crossfade from snapping to its end state.
+          draw(performance.now(), 1);
         }
 
         function onVisibility() {
@@ -3369,7 +3444,9 @@ window.__ModuleLoader__.load({
         }
 
         resize();
-        draw(4200, 0);
+        // Use the live clock for the first frame too. The fixed 4200 phase is
+        // only for the no-animation reduced-motion still.
+        draw(reduced() ? 4200 : performance.now(), 0);
         kick();
 
         window.addEventListener('resize', onResize);
@@ -3410,10 +3487,10 @@ window.__ModuleLoader__.load({
         React.Fragment,
         null,
         h('style', { key: 'style' }, CSS),
-        h('canvas', {
-          key: 'canvas',
-          ref: canvasRef,
-          className: 'dsh-nebula-canvas',
+        h('div', {
+          key: 'canvas-host',
+          ref: canvasHostRef,
+          className: 'dsh-nebula-canvas-host',
           'aria-hidden': 'true',
         }),
         h('div', {
