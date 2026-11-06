@@ -61,7 +61,7 @@ link:/absolute/path/to/dsh-nebula
 ## Notes
 
 - Client-only; no Host code, dependencies, telemetry, or install scripts. Settings live in `localStorage`.
-- Approximate location uses IANA time-zone principal coordinates, never an IP address. **Precise location** is opt-in and cached for 15 minutes; place names come from OpenStreetMap Nominatim.
+- Approximate location uses IANA time-zone principal coordinates, never an IP address. **Browser geolocation** is opt-in and cached for 15 minutes; VPNs can affect the result. Place names come from OpenStreetMap Nominatim.
 - Weather comes from Open-Meteo; aurora intensity uses NOAA's planetary K index.
 - Radio search and country browse use radio-browser.info. Streams are third-party and may change or go offline. The five defaults are fixed; custom stations can be removed.
 - Push a `vX.Y.Z` tag to publish to npm and create a GitHub release through the release workflow.

@@ -92,17 +92,17 @@ window.__ModuleLoader__.load({
       weatherCloud: 'cloud',
       weatherVisibility: 'visibility',
       weatherGusts: 'gusts',
-      preciseLabel: 'Precise location',
-      preciseDescription: 'Use your browser’s exact coordinates for weather and sky.',
+      preciseLabel: 'Browser geolocation',
+      preciseDescription: 'Use your browser’s location for weather and sky. VPNs can affect it.',
       locationLabel: 'Location',
-      locationPrecise: 'Precise',
-      locationPreciseDenied: 'Precise denied',
-      locationPreciseUnavailable: 'Precise unavailable',
+      locationPrecise: 'Browser location',
+      locationPreciseDenied: 'Browser location denied',
+      locationPreciseUnavailable: 'Browser location unavailable',
       locationApproximateClock: 'Approximate (clock)',
       locationUnavailable: 'Unavailable',
       locationLocating: 'Locating…',
       preciseActionOn: 'Use approximate location',
-      preciseActionOff: 'Use precise browser location',
+      preciseActionOff: 'Use browser geolocation',
       ambienceOffStatus: 'Ambience off',
       skyHintAmbienceOff: 'Ambience is off. Turn Aurora & stars on to see the sky.',
       skyTitle: 'Nebula Sky',
@@ -1308,10 +1308,7 @@ window.__ModuleLoader__.load({
       const snow = Math.max(0, Number(currentWeather.snowfall) || 0);
       if (codeKind === 'storm') return 'storm';
       if (snow > 0.02) return 'snow';
-      if (rain > 0.02) {
-        const convective = [80, 81, 82, 95, 96, 99].includes(Number(currentWeather.code));
-        return convective && Number(currentWeather.cape) > 1200 ? 'storm' : 'rain';
-      }
+      if (rain > 0.02) return 'rain';
       if (
         codeKind === 'fog' ||
         (Number(currentWeather.visibility) < 1000 &&
